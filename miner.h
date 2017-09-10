@@ -1339,6 +1339,7 @@ struct pool {
 	char bbversion[12];
 	char nbit[12];
 	char ntime[12];
+	double next_diff;
 	double sdiff;
 
 	struct timeval tv_lastwork;
