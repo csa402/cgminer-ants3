@@ -1876,7 +1876,7 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_ANT_S2
 #ifdef USE_ANT_S3
-		"ant.S3 +xnsub "
+		"ant.S3 "
 #else
 		"ant.S2 "
 #endif
