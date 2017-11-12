@@ -27,11 +27,12 @@
 #include "klist.h"
 
 #if defined(USE_BFLSC) || defined(USE_AVALON) || defined(USE_AVALON2) || defined(USE_AVALON4) || \
-  defined(USE_HASHFAST) || defined(USE_BITFURY) || defined(USE_BLOCKERUPTER) || defined(USE_KLONDIKE) || \
+  defined(USE_HASHFAST) || defined(USE_BITFURY) || defined(USE_BITFURY16) || defined(USE_BLOCKERUPTER) || defined(USE_KLONDIKE) || \
 	defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRILLBIT) || \
 	defined(USE_MINION) || defined(USE_COINTERRA) || defined(USE_BITMINE_A1) || \
 	defined(USE_ANT_S1) || defined(USE_ANT_S2) || defined(USE_ANT_S3) || defined(USE_SP10) || \
-	defined(USE_SP30) || defined(USE_ICARUS) || defined(USE_HASHRATIO)
+	defined(USE_SP30) || defined(USE_ICARUS) || defined(USE_HASHRATIO) || defined(USE_AVALON_MINER) || \
+	defined(USE_AVALON7)
 #define HAVE_AN_ASIC 1
 #endif
 
@@ -138,7 +139,7 @@ static const char SEPARATOR = '|';
 #define JOIN_CMD "CMD="
 #define BETWEEN_JOIN SEPSTR
 
-static const char *APIVERSION = "3.6";
+static const char *APIVERSION = "3.7";
 static const char *DEAD = "Dead";
 static const char *SICK = "Sick";
 static const char *NOSTART = "NoStart";
@@ -2486,6 +2487,7 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 	bool io_open = false;
 	char *status, *lp;
 	int i;
+	double sdiff0 = 0.0;
 
 	if (total_pools == 0) {
 		message(io_data, MSG_NOPOOL, 0, NULL, isjson);
@@ -2554,12 +2556,16 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 		root = api_add_diff(root, "Difficulty Rejected", &(pool->diff_rejected), false);
 		root = api_add_diff(root, "Difficulty Stale", &(pool->diff_stale), false);
 		root = api_add_diff(root, "Last Share Difficulty", &(pool->last_share_diff), false);
+		root = api_add_diff(root, "Work Difficulty", &(pool->cgminer_pool_stats.last_diff), false);
 		root = api_add_bool(root, "Has Stratum", &(pool->has_stratum), false);
 		root = api_add_bool(root, "Stratum Active", &(pool->stratum_active), false);
-		if (pool->stratum_active)
+		if (pool->stratum_active) {
 			root = api_add_escape(root, "Stratum URL", pool->stratum_url, false);
-		else
+			root = api_add_diff(root, "Stratum Difficulty", &(pool->sdiff), false);
+		} else {
 			root = api_add_const(root, "Stratum URL", BLANK, false);
+			root = api_add_diff(root, "Stratum Difficulty", &(sdiff0), false);
+		}
 		root = api_add_bool(root, "Has GBT", &(pool->has_gbt), false);
 		root = api_add_uint64(root, "Best Share", &(pool->best_diff), true);
 		double rejp = (pool->diff_accepted + pool->diff_rejected + pool->diff_stale) ?
@@ -2569,6 +2575,9 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 				(double)(pool->diff_stale) / (double)(pool->diff_accepted + pool->diff_rejected + pool->diff_stale) : 0;
 		root = api_add_percent(root, "Pool Stale%", &stalep, false);
 		root = api_add_uint64(root, "Bad Work", &(pool->bad_work), true);
+		root = api_add_uint32(root, "Current Block Height", &(pool->current_height), true);
+		uint32_t nversion = (uint32_t)strtoul(pool->bbversion, NULL, 16);
+		root = api_add_uint32(root, "Current Block Version", &nversion, true);
 
 		root = print_data(io_data, root, isjson, isjson && (i > 0));
 	}
@@ -4446,7 +4455,7 @@ static void setup_ipaccess()
 				if (mask < 1 || (mask += ipv6 ? 0 : 96) > 128) {
 					applog(LOG_ERR, "API: ignored address with "
 							"invalid mask (%d) '%s'",
-							mask, original); 
+							mask, original);
 					goto popipo; // skip invalid/zero
 				}
 
@@ -4470,7 +4479,7 @@ static void setup_ipaccess()
 				if (INET_PTON(AF_INET6, ptr, &(ipaccess[ips].ip)) != 1) {
 					applog(LOG_ERR, "API: ignored invalid "
 							"IPv6 address '%s'",
-							original); 
+							original);
 					goto popipo;
 				}
 			}
@@ -4505,7 +4514,7 @@ static void setup_ipaccess()
 				if (INET_PTON(AF_INET6, tmp, &(ipaccess[ips].ip)) != 1) {
 					applog(LOG_ERR, "API: ignored invalid "
 							"IPv4 address '%s' (as %s)",
-							original, tmp); 
+							original, tmp);
 					goto popipo;
 				}
 			}
@@ -4828,17 +4837,18 @@ void api(int api_thr_id)
 	bool addrok;
 	char group;
 	json_error_t json_err;
-	json_t *json_config = NULL;
+	json_t *json_config;
 	json_t *json_val;
 	bool isjson;
-	bool did, isjoin = false, firstjoin;
+	bool did, isjoin, firstjoin;
 	int i;
 	struct addrinfo hints, *res, *host;
-
 	SOCKETTYPE *apisock;
 
 	apisock = cgmalloc(sizeof(*apisock));
 	*apisock = INVSOCK;
+	json_config = NULL;
+	isjoin = false;
 
 	if (!opt_api_listen) {
 		applog(LOG_DEBUG, "API not running%s", UNAVAILABLE);

@@ -1,7 +1,7 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-JANSSON_CPPFLAGS= -I$(top_builddir)/compat/jansson-2.6/src -I$(top_srcdir)/compat/jansson-2.6/src
+JANSSON_CPPFLAGS= -I$(top_builddir)/compat/jansson-2.9/src -I$(top_srcdir)/compat/jansson-2.6/src
 
 if WANT_USBUTILS
 USBUTILS_CPPFLAGS = -I$(top_builddir)/compat/libusb-1.0/libusb -I$(top_srcdir)/compat/libusb-1.0/libusb
@@ -93,6 +93,19 @@ if HAS_BITFURY
 cgminer_SOURCES += driver-bitfury.c driver-bitfury.h
 endif
 
+if HAS_BITFURY16
+cgminer_SOURCES += bf16-bitfury16.c bf16-bitfury16.h
+cgminer_SOURCES += bf16-brd-control.c bf16-brd-control.h
+cgminer_SOURCES += bf16-communication.c bf16-communication.h
+cgminer_SOURCES += bf16-ctrldevice.c bf16-ctrldevice.h
+cgminer_SOURCES += bf16-device.h
+cgminer_SOURCES += bf16-gpiodevice.c bf16-gpiodevice.h
+cgminer_SOURCES += bf16-mspcontrol.c bf16-mspcontrol.h
+cgminer_SOURCES += bf16-spidevice.c bf16-spidevice.h
+cgminer_SOURCES += bf16-uartdevice.c bf16-uartdevice.h
+cgminer_SOURCES += driver-bitfury16.c driver-bitfury16.h
+endif
+
 if HAS_BITMINE_A1
 cgminer_SOURCES += driver-SPI-bitmine-A1.c
 cgminer_SOURCES += spi-context.c spi-context.h
@@ -140,6 +153,22 @@ endif
 
 if HAS_AVALON4
 cgminer_SOURCES += driver-avalon4.c driver-avalon4.h
+endif
+
+if HAS_AVALON7
+cgminer_SOURCES += driver-avalon7.c driver-avalon7.h
+endif
+
+if NEED_I2C_CONTEXT
+cgminer_SOURCES += i2c-context.c
+endif
+
+if SUPPORT_SSP
+cgminer_SOURCES += libssplus.c
+endif
+
+if HAS_AVALON_MINER
+cgminer_SOURCES += driver-avalon-miner.c driver-avalon-miner.h
 endif
 
 if HAS_MINION

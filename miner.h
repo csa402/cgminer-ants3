@@ -8,17 +8,7 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <jansson.h>
-#ifdef HAVE_LIBCURL
-#include <curl/curl.h>
-#else
-typedef char CURL;
-extern char *curly;
-#define curl_easy_init(curl) (curly)
-#define curl_easy_cleanup(curl) {}
-#define curl_global_cleanup() {}
-#define CURL_GLOBAL_ALL 0
-#define curl_global_init(X) (0)
-#endif
+
 #include <sched.h>
 
 #include "elist.h"
@@ -67,8 +57,19 @@ void *alloca (size_t);
 # endif
 #endif
 
+#ifdef HAVE_LIBCURL
+#include <curl/curl.h>
+#else
+typedef char CURL;
+extern char *curly;
+#define curl_easy_init(curl) (curly)
+#define curl_easy_cleanup(curl) {}
+#define curl_global_cleanup() {}
+#define CURL_GLOBAL_ALL 0
+#define curl_global_init(X) (0)
+#endif
+
 #ifdef __MINGW32__
-#include <windows.h>
 #include <io.h>
 static inline int fsync (int fd)
 {
@@ -240,8 +241,11 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(avalon) \
 	DRIVER_ADD_COMMAND(avalon2) \
 	DRIVER_ADD_COMMAND(avalon4) \
+	DRIVER_ADD_COMMAND(avalon7) \
+	DRIVER_ADD_COMMAND(avalonm) \
 	DRIVER_ADD_COMMAND(bflsc) \
 	DRIVER_ADD_COMMAND(bitfury) \
+	DRIVER_ADD_COMMAND(bitfury16) \
 	DRIVER_ADD_COMMAND(blockerupter) \
 	DRIVER_ADD_COMMAND(cointerra) \
 	DRIVER_ADD_COMMAND(hashfast) \
@@ -359,6 +363,9 @@ struct device_drv {
 
 	/* Lowest diff the controller can safely run at */
 	double min_diff;
+
+	/* Does this device generate work itself and not require stratum work generation? */
+	bool genwork;
 };
 
 extern struct device_drv *copy_drv(struct device_drv*);
@@ -444,7 +451,7 @@ struct cgpu_info {
 	bool blacklisted;
 	bool nozlp; // Device prefers no zero length packet
 #endif
-#if defined(USE_AVALON) || defined(USE_AVALON2)
+#if defined(USE_AVALON) || defined(USE_AVALON2) || defined (USE_AVALON_MINER)
 	struct work **works;
 	int work_array;
 	int queued;
@@ -564,6 +571,7 @@ struct thr_info {
 
 	bool	work_restart;
 	bool	work_update;
+	bool	clean_jobs;
 };
 
 struct string_elist {
@@ -974,11 +982,13 @@ struct pool;
 #define API_MCAST_ADDR "224.0.0.75"
 
 extern bool opt_work_update;
+extern bool opt_clean_jobs;
 extern bool opt_protocol;
 extern bool have_longpoll;
 extern char *opt_kernel_path;
 extern char *opt_socks_proxy;
 extern int opt_suggest_diff;
+extern int opt_force_clean_jobs;
 extern char *cgminer_path;
 extern bool opt_lowmem;
 extern bool opt_autofan;
@@ -1004,6 +1014,7 @@ extern char *opt_icarus_options;
 extern char *opt_icarus_timing;
 extern float opt_anu_freq;
 extern float opt_au3_freq;
+extern float opt_compac_freq;
 extern int opt_au3_volt;
 extern float opt_rock_freq;
 #endif
@@ -1084,6 +1095,8 @@ extern json_t *json_web_config(const char *url);
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 			     const char *rpc_req, bool, bool, int *,
 			     struct pool *pool, bool);
+struct pool;
+extern struct pool *opt_btcd;
 #endif
 extern const char *proxytype(proxytypes_t proxytype);
 extern char *get_proxy(char *url, struct pool *pool);
@@ -1116,9 +1129,10 @@ extern pthread_cond_t restart_cond;
 extern void clear_stratum_shares(struct pool *pool);
 extern void clear_pool_work(struct pool *pool);
 extern void set_target(unsigned char *dest_target, double diff);
-#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_HASHRATIO)
+#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
 			 uint32_t nonce2, uint32_t nonce, uint32_t ntime);
+uint32_t gen_merkle_root(struct pool *pool, uint64_t nonce2);
 #endif
 extern int restart_wait(struct thr_info *thr, unsigned int mstime);
 
@@ -1171,7 +1185,7 @@ extern unsigned int local_work;
 extern unsigned int total_go, total_ro;
 extern const int opt_cutofftemp;
 extern int opt_log_interval;
-extern unsigned long long global_hashrate;
+extern uint64_t global_hashrate;
 extern char current_hash[68];
 extern double current_diff;
 extern uint64_t best_diff;
@@ -1340,7 +1354,9 @@ struct pool {
 	char nbit[12];
 	char ntime[12];
 	double next_diff;
+	double diff_after;
 	double sdiff;
+	uint32_t current_height;
 
 	struct timeval tv_lastwork;
 };
@@ -1477,6 +1493,7 @@ extern struct work *find_queued_work_bymidstate(struct cgpu_info *cgpu, char *mi
 extern struct work *clone_queued_work_bymidstate(struct cgpu_info *cgpu, char *midstate, size_t midstatelen, char *data, int offset, size_t datalen);
 extern struct work *__find_work_byid(struct work *que, uint32_t id);
 extern struct work *find_queued_work_byid(struct cgpu_info *cgpu, uint32_t id);
+extern struct work *clone_queued_work_byid(struct cgpu_info *cgpu, uint32_t id);
 extern void __work_completed(struct cgpu_info *cgpu, struct work *work);
 extern int age_queued_work(struct cgpu_info *cgpu, double secs);
 extern void work_completed(struct cgpu_info *cgpu, struct work *work);
@@ -1513,6 +1530,7 @@ extern bool successful_connect;
 extern void adl(void);
 extern void app_restart(void);
 extern void roll_work(struct work *work);
+extern void roll_work_ntime(struct work *work, int noffset);
 extern struct work *make_clone(struct work *work);
 extern void clean_work(struct work *work);
 extern void _free_work(struct work **workptr, const char *file, const char *func, const int line);

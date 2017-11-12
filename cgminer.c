@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2015 Con Kolivas
+ * Copyright 2011-2017 Con Kolivas
  * Copyright 2011-2015 Andrew Smith
  * Copyright 2011-2012 Luke Dashjr
  * Copyright 2010 Jeff Garzik
@@ -44,6 +44,7 @@
 #ifndef WIN32
 #include <sys/resource.h>
 #else
+#include <winsock2.h>
 #include <windows.h>
 #endif
 #include <ccan/opt/opt.h>
@@ -81,6 +82,15 @@ char *curly = ":D";
 #include "driver-avalon4.h"
 #endif
 
+#ifdef USE_AVALON7
+#include "driver-avalon7.h"
+#include "libssplus.h"
+#endif
+
+#ifdef USE_AVALON_MINER
+#include "driver-avalon-miner.h"
+#endif
+
 #ifdef USE_BFLSC
 #include "driver-bflsc.h"
 #endif
@@ -99,6 +109,10 @@ char *curly = ":D";
 
 #ifdef USE_BITFURY
 #include "driver-bitfury.h"
+#endif
+
+#ifdef USE_BITFURY16
+#include "driver-bitfury16.h"
 #endif
 
 #ifdef USE_COINTERRA
@@ -128,6 +142,7 @@ struct strategies strategies[] = {
 static char packagename[256];
 
 bool opt_work_update;
+bool opt_clean_jobs = false;
 bool opt_protocol;
 static struct benchfile_layout {
 	int length;
@@ -151,6 +166,7 @@ enum benchwork {
 #ifdef HAVE_LIBCURL
 static char *opt_btc_address;
 static char *opt_btc_sig;
+struct pool *opt_btcd;
 #endif
 static char *opt_benchfile;
 static bool opt_benchfile_display;
@@ -165,14 +181,16 @@ bool opt_quiet;
 bool opt_realquiet;
 bool opt_loginput;
 bool opt_compact;
+bool opt_decode;
 const int opt_cutofftemp = 95;
 int opt_log_interval = 5;
 static const int max_queue = 1;
 const int max_scantime = 60;
 const int max_expiry = 600;
-unsigned long long global_hashrate;
+uint64_t global_hashrate;
 unsigned long global_quota_gcd = 1;
 time_t last_getwork;
+int opt_pool_fallback = 120;
 
 #if defined(USE_USBUTILS)
 int nDevs;
@@ -223,6 +241,7 @@ char *opt_icarus_options = NULL;
 char *opt_icarus_timing = NULL;
 float opt_anu_freq = 250;
 float opt_au3_freq = 225;
+float opt_compac_freq = 150;
 int opt_au3_volt = 775;
 float opt_rock_freq = 270;
 #endif
@@ -242,6 +261,17 @@ static char *opt_set_avalon2_voltage;
 static char *opt_set_avalon4_fan;
 static char *opt_set_avalon4_voltage;
 static char *opt_set_avalon4_freq;
+#endif
+#ifdef USE_AVALON7
+static char *opt_set_avalon7_fan;
+static char *opt_set_avalon7_voltage;
+static char *opt_set_avalon7_voltage_level;
+static char *opt_set_avalon7_voltage_offset;
+static char *opt_set_avalon7_freq;
+#endif
+#ifdef USE_AVALON_MINER
+static char *opt_set_avalonm_voltage;
+static char *opt_set_avalonm_freq;
 #endif
 #ifdef USE_BLOCKERUPTER
 int opt_bet_clk = 0;
@@ -305,10 +335,13 @@ bool opt_usb_list_all;
 cgsem_t usb_resource_sem;
 static pthread_t usb_poll_thread;
 static bool usb_polling;
+static bool polling_usb;
+static bool usb_reinit;
 #endif
 
 char *opt_kernel_path;
 char *cgminer_path;
+bool opt_gen_stratum_work;
 
 #if defined(USE_BITFORCE)
 bool opt_bfl_noncerange;
@@ -432,6 +465,7 @@ static struct stratum_share *stratum_shares = NULL;
 
 char *opt_socks_proxy = NULL;
 int opt_suggest_diff;
+int opt_force_clean_jobs = 20;
 static const char def_conf[] = "cgminer.conf";
 static char *default_config;
 static bool config_loaded;
@@ -516,14 +550,15 @@ void get_datestamp(char *f, size_t fsiz, struct timeval *tv)
 	struct tm *tm;
 
 	const time_t tmp_time = tv->tv_sec;
+	int ms = (int)(tv->tv_usec / 1000);
 	tm = localtime(&tmp_time);
-	snprintf(f, fsiz, "[%d-%02d-%02d %02d:%02d:%02d]",
+	snprintf(f, fsiz, "[%d-%02d-%02d %02d:%02d:%02d.%03d]",
 		tm->tm_year + 1900,
 		tm->tm_mon + 1,
 		tm->tm_mday,
 		tm->tm_hour,
 		tm->tm_min,
-		tm->tm_sec);
+		tm->tm_sec, ms);
 }
 
 static void get_timestamp(char *f, size_t fsiz, struct timeval *tv)
@@ -531,11 +566,12 @@ static void get_timestamp(char *f, size_t fsiz, struct timeval *tv)
 	struct tm *tm;
 
 	const time_t tmp_time = tv->tv_sec;
+	int ms = (int)(tv->tv_usec / 1000);
 	tm = localtime(&tmp_time);
-	snprintf(f, fsiz, "[%02d:%02d:%02d]",
+	snprintf(f, fsiz, "[%02d:%02d:%02d.%03d]",
 		tm->tm_hour,
 		tm->tm_min,
-		tm->tm_sec);
+		tm->tm_sec, ms);
 }
 
 static char exit_buf[512];
@@ -632,7 +668,39 @@ static void sharelog(const char*disposition, const struct work*work)
 
 static char *gbt_req = "{\"id\": 0, \"method\": \"getblocktemplate\", \"params\": [{\"capabilities\": [\"coinbasetxn\", \"workid\", \"coinbase/append\"]}]}\n";
 
-static char *gbt_solo_req = "{\"id\": 0, \"method\": \"getblocktemplate\"}\n";
+static char *gbt_solo_req = "{\"id\": 0, \"method\": \"getblocktemplate\", \"params\": [{\"rules\" : [\"segwit\"]}]}\n";
+
+static const char *gbt_understood_rules[1] = { NULL };
+static const char *gbt_solo_understood_rules[2] = {"segwit", NULL};
+
+static bool gbt_check_required_rule(const char* rule, const char** understood_rules)
+{
+	const char *understood_rule;
+
+	if (!understood_rules || !rule)
+		return false;
+	while ((understood_rule = *understood_rules++)) {
+		if (strcmp(understood_rule, rule) == 0)
+			return true;
+	}
+	return false;
+}
+
+static bool gbt_check_rules(json_t* rules_arr, const char** understood_rules)
+{
+	int i, rule_count;
+	const char *rule;
+
+	if (!rules_arr)
+		return true;
+	rule_count = json_array_size(rules_arr);
+	for (i = 0; i < rule_count; i++) {
+		rule = json_string_value(json_array_get(rules_arr, i));
+		if (rule && *rule++ == '!' && !gbt_check_required_rule(rule, understood_rules))
+			return false;
+	}
+	return true;
+}
 
 /* Adjust all the pools' quota to the greatest common denominator after a pool
  * has been added or the quotas changed. */
@@ -753,6 +821,11 @@ char *set_int_range(const char *arg, int *i, int min, int max)
 	return NULL;
 }
 
+static char *set_int_0_to_65535(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 0, 65535);
+}
+
 static char *set_int_0_to_9999(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 0, 9999);
@@ -761,6 +834,11 @@ static char *set_int_0_to_9999(const char *arg, int *i)
 static char *set_int_1_to_65535(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 1, 65535);
+}
+
+static char *set_int_0_to_5(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 0, 5);
 }
 
 static char *set_int_0_to_10(const char *arg, int *i)
@@ -778,6 +856,23 @@ static char *set_int_0_to_255(const char *arg, int *i)
         return set_int_range(arg, i, 0, 255);
 }
 
+static char *set_int_1_to_255(const char *arg, int *i)
+{
+        return set_int_range(arg, i, 1, 255);
+}
+
+static char *set_int_0_to_7680(const char *arg, int *i)
+{
+        return set_int_range(arg, i, 0, 7680);
+}
+
+#if defined(USE_AVALON4)
+static char *set_int_1_to_60(const char *arg, int *i)
+{
+        return set_int_range(arg, i, 1, 60);
+}
+#endif
+
 static char *set_int_0_to_200(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 0, 200);
@@ -788,19 +883,29 @@ static char *set_int_32_to_63(const char *arg, int *i)
 	return set_int_range(arg, i, 32, 63);
 }
 
-static char *set_int_22_to_55(const char *arg, int *i)
+static char *set_int_22_to_75(const char *arg, int *i)
 {
-	return set_int_range(arg, i, 22, 55);
+	return set_int_range(arg, i, 22, 75);
 }
 
-static char *set_int_42_to_65(const char *arg, int *i)
+static char *set_int_42_to_85(const char *arg, int *i)
 {
-	return set_int_range(arg, i, 42, 62);
+	return set_int_range(arg, i, 42, 85);
 }
 
 static char *set_int_1_to_10(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 1, 10);
+}
+
+static char *set_int_24_to_32(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 24, 32);
+}
+
+static char __maybe_unused *set_int_0_to_2(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 0, 2);
 }
 
 static char __maybe_unused *set_int_0_to_4(const char *arg, int *i)
@@ -851,17 +956,24 @@ static char *set_rr(enum pool_strategy *strategy)
  * stratum+tcp or by detecting a stratum server response */
 bool detect_stratum(struct pool *pool, char *url)
 {
+	bool ret = false;
+
 	if (!extract_sockaddr(url, &pool->sockaddr_url, &pool->stratum_port))
-		return false;
+		goto out;
 
 	if (!strncasecmp(url, "stratum+tcp://", 14)) {
 		pool->rpc_url = strdup(url);
 		pool->has_stratum = true;
 		pool->stratum_url = pool->sockaddr_url;
-		return true;
+		ret = true;
 	}
-
-	return false;
+out:
+	if (!ret) {
+		free(pool->sockaddr_url);
+		free(pool->stratum_port);
+		pool->stratum_port = pool->sockaddr_url = NULL;
+	}
+	return ret;
 }
 
 static struct pool *add_url(void)
@@ -882,9 +994,8 @@ static char *setup_url(struct pool *pool, char *arg)
 	opt_set_charp(arg, &pool->rpc_url);
 	if (strncmp(arg, "http://", 7) &&
 	    strncmp(arg, "https://", 8)) {
-		char *httpinput;
+		char httpinput[256];
 
-		httpinput = cgmalloc(256);
 		strcpy(httpinput, "stratum+tcp://");
 		strncat(httpinput, arg, 242);
 		detect_stratum(pool, httpinput);
@@ -1111,6 +1222,19 @@ static void load_temp_cutoffs()
 	}
 }
 
+static char *set_float_100_to_500(const char *arg, float *i)
+{
+	char *err = opt_set_floatval(arg, i);
+
+	if (err)
+		return err;
+
+	if (*i < 100 || *i > 500)
+		return "Value out of range";
+
+	return NULL;
+}
+
 static char *set_float_125_to_500(const char *arg, float *i)
 {
 	char *err = opt_set_floatval(arg, i);
@@ -1235,8 +1359,8 @@ static struct opt_table opt_config_table[] = {
 #endif
 #ifdef USE_AVALON4
 	OPT_WITHOUT_ARG("--avalon4-automatic-voltage",
-			opt_set_bool, &opt_avalon4_autov,
-			"Automatic adjust voltage base on module DH"),
+		     opt_set_bool, &opt_avalon4_autov,
+		     "Automatic adjust voltage base on module DH"),
 	OPT_WITH_CBARG("--avalon4-voltage",
 		     set_avalon4_voltage, NULL, &opt_set_avalon4_voltage,
 		     "Set Avalon4 core voltage, in millivolts, step: 125"),
@@ -1247,10 +1371,10 @@ static struct opt_table opt_config_table[] = {
 		     set_avalon4_fan, NULL, &opt_set_avalon4_fan,
 		     "Set Avalon4 target fan speed range"),
 	OPT_WITH_ARG("--avalon4-temp",
-		     set_int_22_to_55, opt_show_intval, &opt_avalon4_temp_target,
+		     set_int_22_to_75, opt_show_intval, &opt_avalon4_temp_target,
 		     "Set Avalon4 target temperature"),
 	OPT_WITH_ARG("--avalon4-cutoff",
-		     set_int_42_to_65, opt_show_intval, &opt_avalon4_overheat,
+		     set_int_42_to_85, opt_show_intval, &opt_avalon4_overheat,
 		     "Set Avalon4 overheat cut off temperature"),
 	OPT_WITH_ARG("--avalon4-polling-delay",
 		     set_int_1_to_65535, opt_show_intval, &opt_avalon4_polling_delay,
@@ -1264,6 +1388,133 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--avalon4-aucxdelay",
 		     opt_set_intval, opt_show_intval, &opt_avalon4_aucxdelay,
 		     "Set Avalon4 AUC IIC xfer read delay, 4800 ~= 1ms"),
+	OPT_WITH_ARG("--avalon4-miningmode",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_miningmode,
+		     "Set Avalon4 mining mode(0:custom, 1:eco, 2:normal, 3:turbo"),
+	OPT_WITHOUT_ARG("--avalon4-freezesafe",
+		     opt_set_bool, &opt_avalon4_freezesafe,
+		     "Make Avalon4 running as a radiator when stratum server failed"),
+	OPT_WITH_ARG("--avalon4-ntcb",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_ntcb,
+		     "Set Avalon4 MM NTC B value"),
+	OPT_WITH_ARG("--avalon4-freq-min",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_freq_min,
+		     "Set minimum frequency for Avalon4"),
+	OPT_WITH_ARG("--avalon4-freq-max",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_freq_max,
+		     "Set maximum frequency for Avalon4"),
+	OPT_WITHOUT_ARG("--avalon4-noncecheck-off",
+		     opt_set_invbool, &opt_avalon4_noncecheck,
+		     "Disable A3218 inside nonce check function"),
+	OPT_WITH_ARG("--avalon4-smart-speed",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_smart_speed,
+		     "Set smart speed, range 0-3. 0 means Disable"),
+	OPT_WITH_ARG("--avalon4-speed-bingo",
+		     set_int_1_to_255, opt_show_intval, &opt_avalon4_speed_bingo,
+		     "Set A3218 speed bingo for smart speed mode 1"),
+	OPT_WITH_ARG("--avalon4-speed-error",
+		     set_int_1_to_255, opt_show_intval, &opt_avalon4_speed_error,
+		     "Set A3218 speed error for smart speed mode 1"),
+	OPT_WITH_ARG("--avalon4-least-pll",
+		     set_int_0_to_7680, opt_show_intval, &opt_avalon4_least_pll_check,
+		     "Set least pll check threshold for smart speed mode 2"),
+	OPT_WITH_ARG("--avalon4-most-pll",
+		     set_int_0_to_7680, opt_show_intval, &opt_avalon4_most_pll_check,
+		     "Set most pll check threshold for smart speed mode 2"),
+	OPT_WITHOUT_ARG("--avalon4-iic-detect",
+		     opt_set_bool, &opt_avalon4_iic_detect,
+		     "Enable miner detect through iic controller"),
+	OPT_WITH_ARG("--avalon4-freqadj-time",
+		     set_int_1_to_60, opt_show_intval, &opt_avalon4_freqadj_time,
+		     "Set Avalon4 check interval when run in AVA4_FREQ_TEMPADJ_MODE"),
+	OPT_WITH_ARG("--avalon4-delta-temp",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_delta_temp,
+		     "Set Avalon4 delta temperature when reset freq in AVA4_FREQ_TEMPADJ_MODE"),
+	OPT_WITH_ARG("--avalon4-delta-freq",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_delta_freq,
+		     "Set Avalon4 delta freq when adjust freq in AVA4_FREQ_TEMPADJ_MODE"),
+	OPT_WITH_ARG("--avalon4-freqadj-temp",
+		     opt_set_intval, opt_show_intval, &opt_avalon4_freqadj_temp,
+		     "Set Avalon4 check temperature when run into AVA4_FREQ_TEMPADJ_MODE"),
+#endif
+#ifdef USE_AVALON7
+	OPT_WITH_CBARG("--avalon7-voltage",
+		     set_avalon7_voltage, NULL, &opt_set_avalon7_voltage,
+		     "Set Avalon7 default core voltage, in millivolts, step: 78"),
+	OPT_WITH_CBARG("--avalon7-voltage-level",
+		     set_avalon7_voltage_level, NULL, &opt_set_avalon7_voltage_level,
+		     "Set Avalon7 default level of core voltage, range:[0, 15], step: 1"),
+	OPT_WITH_CBARG("--avalon7-voltage-offset",
+		     set_avalon7_voltage_offset, NULL, &opt_set_avalon7_voltage_offset,
+		     "Set Avalon7 default offset of core voltage, range:[-2, 1], step: 1"),
+	OPT_WITH_CBARG("--avalon7-freq",
+		     set_avalon7_freq, NULL, &opt_set_avalon7_freq,
+		     "Set Avalon7 default frequency, range:[24, 1404], step: 12, example: 500"),
+	OPT_WITH_ARG("--avalon7-freq-sel",
+		     set_int_0_to_5, opt_show_intval, &opt_avalon7_freq_sel,
+		     "Set Avalon7 default frequency select, range:[0, 5], step: 1, example: 3"),
+	OPT_WITH_CBARG("--avalon7-fan",
+		     set_avalon7_fan, NULL, &opt_set_avalon7_fan,
+		     "Set Avalon7 target fan speed, range:[0, 100], step: 1, example: 0-100"),
+	OPT_WITH_ARG("--avalon7-temp",
+		     set_int_0_to_100, opt_show_intval, &opt_avalon7_temp_target,
+		     "Set Avalon7 target temperature, range:[0, 100]"),
+	OPT_WITH_ARG("--avalon7-polling-delay",
+		     set_int_1_to_65535, opt_show_intval, &opt_avalon7_polling_delay,
+		     "Set Avalon7 polling delay value (ms)"),
+	OPT_WITH_ARG("--avalon7-aucspeed",
+		     opt_set_intval, opt_show_intval, &opt_avalon7_aucspeed,
+		     "Set AUC3 IIC bus speed"),
+	OPT_WITH_ARG("--avalon7-aucxdelay",
+		     opt_set_intval, opt_show_intval, &opt_avalon7_aucxdelay,
+		     "Set AUC3 IIC xfer read delay, 4800 ~= 1ms"),
+	OPT_WITH_ARG("--avalon7-smart-speed",
+		     opt_set_intval, opt_show_intval, &opt_avalon7_smart_speed,
+		     "Set Avalon7 smart speed, range 0-1. 0 means Disable"),
+	OPT_WITH_ARG("--avalon7-th-pass",
+		     set_int_0_to_65535, opt_show_intval, &opt_avalon7_th_pass,
+		     "Set A3212 th pass value"),
+	OPT_WITH_ARG("--avalon7-th-fail",
+		     set_int_0_to_65535, opt_show_intval, &opt_avalon7_th_fail,
+		     "Set A3212 th fail value"),
+	OPT_WITH_ARG("--avalon7-th-init",
+		     set_int_0_to_65535, opt_show_intval, &opt_avalon7_th_init,
+		     "Set A3212 th init value"),
+	OPT_WITH_ARG("--avalon7-th-ms",
+		     set_int_0_to_65535, opt_show_intval, &opt_avalon7_th_ms,
+		     "Set A3212 th ms value"),
+	OPT_WITH_ARG("--avalon7-th-timeout",
+		     opt_set_uintval, opt_show_uintval, &opt_avalon7_th_timeout,
+		     "Set A3212 th timeout value"),
+	OPT_WITHOUT_ARG("--avalon7-iic-detect",
+		     opt_set_bool, &opt_avalon7_iic_detect,
+		     "Enable Avalon7 detect through iic controller"),
+	OPT_WITH_ARG("--avalon7-nonce-mask",
+		     set_int_24_to_32, opt_show_intval, &opt_avalon7_nonce_mask,
+		     "Set A3212 nonce mask, range 24-32."),
+	OPT_WITHOUT_ARG("--no-avalon7-asic-debug",
+		     opt_set_invbool, &opt_avalon7_asic_debug,
+		     "Disable A3212 debug."),
+	OPT_WITHOUT_ARG("--avalon7-ssplus-enable",
+		     opt_set_bool, &opt_avalon7_ssplus_enable,
+		     "Enable avalon7 smart speed plus."),
+#endif
+#ifdef USE_AVALON_MINER
+	OPT_WITH_CBARG("--avalonm-voltage",
+		     set_avalonm_voltage, NULL, &opt_set_avalonm_voltage,
+		     "Set Avalon miner core voltage, in millivolts, step: 125"),
+	OPT_WITH_CBARG("--avalonm-freq",
+		     set_avalonm_freq, NULL, &opt_set_avalonm_freq,
+		     "Set frequency for Avalon miner, 1 to 3 values, example: 275:250:200"),
+	OPT_WITH_ARG("--avalonm-ntime-offset",
+		     opt_set_intval, opt_show_intval, &opt_avalonm_ntime_offset,
+		     "Set Avalon miner ntime rolling max offset, range 0-4"),
+	OPT_WITH_ARG("--avalonm-spispeed",
+		     opt_set_intval, opt_show_intval, &opt_avalonm_spispeed,
+		     "Set spi speed for Avalon miner"),
+	OPT_WITHOUT_ARG("--avalonm-automatic-freq",
+			opt_set_bool, &opt_avalonm_autof,
+			"Automatic adjust frequency base on chip HW"),
 #endif
 #ifdef USE_BAB
 	OPT_WITH_ARG("--bab-options",
@@ -1385,6 +1636,48 @@ static struct opt_table opt_config_table[] = {
 		     set_int_0_to_100, opt_show_intval, &opt_bxm_bits,
 		     "Set BXM bits for overclocking"),
 #endif
+#ifdef USE_BITFURY16
+	OPT_WITHOUT_ARG("--bf16-set-clock",
+			opt_set_bool, &opt_bf16_set_clock,
+			"Set clock to all chips"),
+	OPT_WITH_ARG("--bf16-test-chip",
+			opt_set_charp, NULL, &opt_bf16_test_chip,
+			"Test BF16 chip communication: [board_id:bcm250_id:chip_id]"),
+	OPT_WITH_ARG("--bf16-clock",
+			opt_set_charp, NULL, &opt_bf16_clock,
+			"BF16 chips clock value"),
+	OPT_WITH_ARG("--bf16-renonce-clock",
+			opt_set_charp, NULL, &opt_bf16_renonce_clock,
+			"BF16 renonce chip clock value"),
+	OPT_WITHOUT_ARG("--bf16-enable-stats",
+			opt_set_bool, &opt_bf16_stats_enabled,
+			"Enable statistics thread"),
+	OPT_WITHOUT_ARG("--bf16-disable-power-management",
+			opt_set_bool, &opt_bf16_power_management_disabled,
+			"Disable automatic power management"),
+	OPT_WITH_ARG("--bf16-renonce",
+			set_int_0_to_2, NULL, &opt_bf16_renonce,
+			"Renonce functionality: 0 - disabled, 1 - one chip, 2 - chip per board"),
+#ifdef MINER_X5
+	OPT_WITHOUT_ARG("--bf16-manual-pid-enable",
+			opt_set_bool, &opt_bf16_manual_pid_enabled,
+			"Enable manual PID regulator"),
+#endif
+#ifdef MINER_X6
+	OPT_WITHOUT_ARG("--bf16-manual-pid-disable",
+			opt_set_bool, &opt_bf16_manual_pid_disabled,
+			"Disable manual PID regulator"),
+#endif
+	OPT_WITH_ARG("--bf16-fan-speed",
+		     set_int_0_to_100, NULL, &opt_bf16_fan_speed,
+		     "Set fan speed in '%' range (0 - 100)"),
+	OPT_WITH_ARG("--bf16-target-temp",
+		     set_int_0_to_100, NULL, &opt_bf16_target_temp,
+		     "Set control board target temperature range (0 - 100)"),
+	OPT_WITH_ARG("--bf16-alarm-temp",
+		     set_int_0_to_100, NULL, &opt_bf16_alarm_temp,
+		     "Set control board alarm temperature range (0 - 100)"),
+#endif
 #ifdef USE_BLOCKERUPTER
         OPT_WITH_ARG("--bet-clk",
                      opt_set_intval, opt_show_intval, &opt_bet_clk,
@@ -1397,6 +1690,11 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--btc-sig",
 		     opt_set_charp, NULL, &opt_btc_sig,
 		     "Set signature to add to coinbase when solo mining (optional)"),
+#endif
+#ifdef USE_ICARUS
+	OPT_WITH_ARG("--compac-freq",
+		     set_float_100_to_500, &opt_show_floatval, &opt_compac_freq,
+		     "Set GekkoScience Compac frequency in MHz, range 100-500"),
 #endif
 #ifdef HAVE_CURSES
 	OPT_WITHOUT_ARG("--compact",
@@ -1414,6 +1712,11 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--debug|-D",
 		     enable_debug, &opt_debug,
 		     "Enable debug output"),
+#ifdef HAVE_CURSES
+	OPT_WITHOUT_ARG("--decode",
+			opt_set_bool, &opt_decode,
+			"Decode 2nd pool stratum coinbase transactions (1st must be bitcoind) and exit"),
+#endif
 	OPT_WITHOUT_ARG("--disable-rejecting",
 			opt_set_bool, &opt_disable_pool,
 			"Automatically disable pools that continually reject shares"),
@@ -1434,6 +1737,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--failover-only",
 			set_null, &opt_set_null,
 			opt_hidden),
+	OPT_WITH_ARG("--fallback-time",
+		     opt_set_intval, opt_show_intval, &opt_pool_fallback,
+		     "Set time in seconds to fall back to a higher priority pool after period of instability"),
 	OPT_WITHOUT_ARG("--fix-protocol",
 			opt_set_bool, &opt_fix_protocol,
 			"Do not redirect to stratum protocol from GBT"),
@@ -1699,6 +2005,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--worktime",
 			opt_set_bool, &opt_worktime,
 			"Display extra work time debug information"),
+	OPT_WITH_ARG("--force-clean-jobs",
+		     opt_set_intval, NULL, &opt_force_clean_jobs,
+		     "Force clean jobs to miners (default: 20)"),
 	OPT_ENDTABLE
 };
 
@@ -1717,18 +2026,21 @@ static char *parse_config(json_t *config, bool fileconf)
 		fileconf_load = 1;
 
 	for (opt = opt_config_table; opt->type != OPT_END; opt++) {
-		char *p, *name;
+		char *p, *saved, *name;
 
 		/* We don't handle subtables. */
 		assert(!(opt->type & OPT_SUBTABLE));
 
-		if (!opt->names)
+		if (!opt->names || !strlen(opt->names))
 			continue;
 
 		/* Pull apart the option name(s). */
 		name = strdup(opt->names);
-		for (p = strtok(name, "|"); p; p = strtok(NULL, "|")) {
+		for (p = strtok_r(name, "|", &saved); p != NULL; p = strtok_r(NULL, "|", &saved)) {
 			char *err = NULL;
+
+			if (strlen(p) < 3)
+				continue;
 
 			/* Ignore short options. */
 			if (p[1] != '-')
@@ -1890,6 +2202,12 @@ static char *opt_verusage_and_exit(const char *extra)
 #ifdef USE_AVALON4
 		"avalon4 "
 #endif
+#ifdef USE_AVALON7
+		"avalon7 "
+#endif
+#ifdef USE_AVALON_MINER
+		"avalon miner"
+#endif
 #ifdef USE_BFLSC
 		"bflsc "
 #endif
@@ -1898,6 +2216,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_BITFURY
 		"bitfury "
+#endif
+#ifdef USE_BITFURY16
+		"bitfury16 "
 #endif
 #ifdef USE_COINTERRA
 		"cointerra "
@@ -2299,13 +2620,21 @@ static void gbt_merkle_bins(struct pool *pool, json_t *transaction_arr)
 		for (i = 0; i < pool->transactions; i++) {
 			unsigned char binswap[32];
 			const char *hash;
+			const char *txid;
 
 			arr_val = json_array_get(transaction_arr, i);
+			txid = json_string_value(json_object_get(arr_val, "txid"));
 			hash = json_string_value(json_object_get(arr_val, "hash"));
+			if(!txid)
+				txid = hash;
 			txn = json_string_value(json_object_get(arr_val, "data"));
 			len = strlen(txn);
 			cg_memcpy(pool->txn_data + ofs, txn, len);
 			ofs += len;
+#if 0
+			// This logic no longer works post-segwit. The txids will always need to be sent,
+			// as the full txns will also contain witness data that must be omitted in these
+			// hashes.
 			if (!hash) {
 				unsigned char *txn_bin;
 				int txn_len;
@@ -2318,8 +2647,13 @@ static void gbt_merkle_bins(struct pool *pool, json_t *transaction_arr)
 				gen_hash(txn_bin, hashbin + 32 + 32 * i, txn_len);
 				continue;
 			}
-			if (!hex2bin(binswap, hash, 32)) {
-				applog(LOG_ERR, "Failed to hex2bin hash in gbt_merkle_bins");
+#endif
+			if (!txid) {
+				applog(LOG_ERR, "missing txid in gbt_merkle_bins");
+				return;
+			}
+			if (!hex2bin(binswap, txid, 32)) {
+				applog(LOG_ERR, "Failed to hex2bin txid in gbt_merkle_bins");
 				return;
 			}
 			swab256(hashbin + 32 + 32 * i, binswap);
@@ -2355,6 +2689,60 @@ static void gbt_merkle_bins(struct pool *pool, json_t *transaction_arr)
 		pool->pool_no);
 }
 
+static const unsigned char witness_nonce[32] = {0};
+static const int witness_nonce_size = sizeof(witness_nonce);
+static const unsigned char witness_header[] = {0xaa, 0x21, 0xa9, 0xed};
+static const int witness_header_size = sizeof(witness_header);
+
+static bool gbt_witness_data(json_t *transaction_arr, unsigned char* witnessdata, int avail_size)
+{
+	int i, binlen, txncount = json_array_size(transaction_arr);
+	unsigned char *hashbin;
+	const char *hash;
+	json_t *arr_val;
+
+	binlen = txncount * 32 + 32;
+	hashbin = alloca(binlen + 32);
+	memset(hashbin, 0, 32);
+
+	if (avail_size < witness_header_size + 32)
+		return false;
+
+	for (i = 0; i < txncount; i++) {
+		unsigned char binswap[32];
+
+		arr_val = json_array_get(transaction_arr, i);
+		hash = json_string_value(json_object_get(arr_val, "hash"));
+		if (unlikely(!hash)) {
+			applog(LOG_ERR, "Hash missing for transaction");
+			return false;
+		}
+		if (!hex2bin(binswap, hash, 32)) {
+			applog(LOG_ERR, "Failed to hex2bin hash in gbt_witness_data");
+			return false;
+		}
+		swab256(hashbin + 32 + 32 * i, binswap);
+	}
+
+	// Build merkle root (copied from libblkmaker)
+	for (txncount++ ; txncount > 1 ; txncount /= 2) {
+		if (txncount % 2) {
+			// Odd number, duplicate the last
+			memcpy(hashbin + 32 * txncount, hashbin + 32 * (txncount - 1), 32);
+			txncount++;
+		}
+		for (i = 0; i < txncount; i += 2) {
+			// We overlap input and output here, on the first pair
+			gen_hash(hashbin + 32 * i, hashbin + 32 * (i / 2), 64);
+		}
+	}
+
+	memcpy(witnessdata, witness_header, witness_header_size);
+	memcpy(hashbin + 32, &witness_nonce, witness_nonce_size);
+	gen_hash(hashbin, witnessdata + witness_header_size, 32 + witness_nonce_size);
+	return true;
+}
+
 static double diff_from_target(void *target);
 
 static const char scriptsig_header[] = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff";
@@ -2362,7 +2750,7 @@ static unsigned char scriptsig_header_bin[41];
 
 static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 {
-	json_t *transaction_arr, *coinbase_aux;
+	json_t *transaction_arr, *rules_arr, *coinbase_aux;
 	const char *previousblockhash;
 	unsigned char hash_swap[32];
 	struct timeval now;
@@ -2370,17 +2758,23 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 	uint64_t coinbasevalue;
 	const char *flags;
 	const char *bits;
-	char header[228];
+	char header[260];
 	int ofs = 0, len;
 	uint64_t *u64;
 	uint32_t *u32;
 	int version;
 	int curtime;
 	int height;
+	int witness_txout_len = 0;
+	int witnessdata_size = 0;
+	bool insert_witness = false;
+	unsigned char witnessdata[36] = {};
+	const char *default_witness_commitment;
 
 	previousblockhash = json_string_value(json_object_get(res_val, "previousblockhash"));
 	target = json_string_value(json_object_get(res_val, "target"));
 	transaction_arr = json_object_get(res_val, "transactions");
+	rules_arr = json_object_get(res_val, "rules");
 	version = json_integer_value(json_object_get(res_val, "version"));
 	curtime = json_integer_value(json_object_get(res_val, "curtime"));
 	bits = json_string_value(json_object_get(res_val, "bits"));
@@ -2388,11 +2782,31 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 	coinbasevalue = json_integer_value(json_object_get(res_val, "coinbasevalue"));
 	coinbase_aux = json_object_get(res_val, "coinbaseaux");
 	flags = json_string_value(json_object_get(coinbase_aux, "flags"));
+	default_witness_commitment = json_string_value(json_object_get(res_val, "default_witness_commitment"));
 
 	if (!previousblockhash || !target || !version || !curtime || !bits || !coinbase_aux || !flags) {
 		applog(LOG_ERR, "Pool %d JSON failed to decode GBT", pool->pool_no);
 		return false;
 	}
+
+	if (rules_arr) {
+		int i;
+		int rule_count = json_array_size(rules_arr);
+		const char *rule;
+
+		for (i = 0; i < rule_count; i++) {
+			rule = json_string_value(json_array_get(rules_arr, i));
+			if (!rule)
+				continue;
+			if (*rule == '!')
+				rule++;
+			if (strncmp(rule, "segwit", 6)) {
+				insert_witness = true;
+				break;
+			}
+		}
+	}
+
 
 	applog(LOG_DEBUG, "previousblockhash: %s", previousblockhash);
 	applog(LOG_DEBUG, "target: %s", target);
@@ -2419,6 +2833,25 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 	pool->nValue = coinbasevalue;
 	hex2bin((unsigned char *)&pool->gbt_bits, bits, 4);
 	gbt_merkle_bins(pool, transaction_arr);
+
+	if (insert_witness) {
+		char witness_str[sizeof(witnessdata) * 2];
+
+		witnessdata_size = sizeof(witnessdata);
+		if (!gbt_witness_data(transaction_arr, witnessdata, witnessdata_size)) {
+			applog(LOG_ERR, "error calculating witness data");
+			return false;
+		}
+		__bin2hex(witness_str, witnessdata, witnessdata_size);
+		applog(LOG_DEBUG, "calculated witness data: %s", witness_str);
+		if (default_witness_commitment) {
+			if (strncmp(witness_str, default_witness_commitment + 4, witnessdata_size * 2) != 0) {
+				applog(LOG_ERR, "bad witness data. %s != %s", default_witness_commitment + 4, witness_str);
+				return false;
+			}
+		}
+	}
+
 	if (pool->transactions < 3)
 		pool->bad_work++;
 	pool->height = height;
@@ -2469,24 +2902,42 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 	len = 	41 // prefix
 		+ ofs // Template length
 		+ 4 // txin sequence no
-		+ 1 // transactions
+		+ 1 // txouts
 		+ 8 // value
 		+ 1 + 25 // txout
 		+ 4; // lock
+
+	if (insert_witness) {
+		len +=  8 //value
+			+   1 + 2 + witnessdata_size; // total scriptPubKey size + OP_RETURN + push size + data
+	}
+
 	free(pool->coinbase);
 	pool->coinbase = cgcalloc(len, 1);
 	cg_memcpy(pool->coinbase + 41, pool->scriptsig_base, ofs);
 	cg_memcpy(pool->coinbase + 41 + ofs, "\xff\xff\xff\xff", 4);
-	pool->coinbase[41 + ofs + 4] = 1;
+	pool->coinbase[41 + ofs + 4] = insert_witness ? 2 : 1;
 	u64 = (uint64_t *)&(pool->coinbase[41 + ofs + 4 + 1]);
 	*u64 = htole64(coinbasevalue);
 
+	if (insert_witness) {
+		unsigned char *witness = &pool->coinbase[41 + ofs + 4 + 1 + 8 + 1 + 25];
+
+		memset(witness, 0, 8);
+		witness_txout_len += 8;
+		witness[witness_txout_len++] = witnessdata_size + 2; // total scriptPubKey size
+		witness[witness_txout_len++] = 0x6a; // OP_RETURN
+		witness[witness_txout_len++] = witnessdata_size;
+		memcpy(&witness[witness_txout_len], witnessdata, witnessdata_size);
+		witness_txout_len += witnessdata_size;
+	}
+
 	pool->nonce2 = 0;
 	pool->n2size = 4;
-	pool->coinbase_len = 41 + ofs + 4 + 1 + 8 + 1 + 25 + 4;
+	pool->coinbase_len = 41 + ofs + 4 + 1 + 8 + 1 + 25 + witness_txout_len + 4;
 	cg_wunlock(&pool->gbt_lock);
 
-	snprintf(header, 225, "%s%s%s%s%s%s%s",
+	snprintf(header, 257, "%s%s%s%s%s%s%s",
 		 pool->bbversion,
 		 pool->prev_hash,
 		 "0000000000000000000000000000000000000000000000000000000000000000",
@@ -2494,7 +2945,7 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 		 pool->nbit,
 		 "00000000", /* nonce */
 		 workpadding);
-	if (unlikely(!hex2bin(pool->header_bin, header, 112)))
+	if (unlikely(!hex2bin(pool->header_bin, header, 128)))
 		quit(1, "Failed to hex2bin header in gbt_solo_decode");
 
 	return true;
@@ -2514,21 +2965,16 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
 	if (pool->gbt_solo) {
 		if (unlikely(!gbt_solo_decode(pool, res_val)))
 			goto out;
-		ret = true;
+		goto out_true;
+	}
+	if (unlikely(!gbt_decode(pool, res_val)))
 		goto out;
-	}
-	if (unlikely(!gbt_decode(pool, res_val))) {
-			goto out;
-		work->gbt = true;
-		ret = true;
-	}
-
+	work->gbt = true;
 	memset(work->hash, 0, sizeof(work->hash));
 
 	cgtime(&work->tv_staged);
-
+out_true:
 	ret = true;
-
 out:
 	return ret;
 }
@@ -3835,13 +4281,8 @@ static void kill_mining(void)
 		if (thr && PTH(thr) != 0L)
 			pth = &thr->pth;
 		thr_info_cancel(thr);
-#ifndef WIN32
 		if (pth && *pth)
 			pthread_join(*pth, NULL);
-#else
-		if (pth && pth->p)
-			pthread_join(*pth, NULL);
-#endif
 	}
 }
 
@@ -3991,6 +4432,29 @@ void roll_work(struct work *work)
 	/* Change the ntime field if this is stratum work */
 	if (work->ntime)
 		modify_ntime(work->ntime, 1);
+
+	/* This is now a different work item so it needs a different ID for the
+	 * hashtable */
+	work->id = total_work_inc();
+}
+
+void roll_work_ntime(struct work *work, int noffset)
+{
+	uint32_t *work_ntime;
+	uint32_t ntime;
+
+	work_ntime = (uint32_t *)(work->data + 68);
+	ntime = be32toh(*work_ntime);
+	ntime += noffset;
+	*work_ntime = htobe32(ntime);
+	local_work++;
+	work->rolls += noffset;
+	work->nonce = 0;
+	applog(LOG_DEBUG, "Successfully rolled work");
+
+	/* Change the ntime field if this is stratum work */
+	if (work->ntime)
+		modify_ntime(work->ntime, noffset);
 
 	/* This is now a different work item so it needs a different ID for the
 	 * hashtable */
@@ -4594,7 +5058,7 @@ static void restart_threads(void)
 
 	cgtime(&restart_tv_start);
 	if (unlikely(pthread_create(&rthread, NULL, restart_thread, NULL)))
-		quit(1, "Failed to create restart thread");
+		quithere(1, "Failed to create restart thread errno=%d", errno);
 }
 
 static void signal_work_update(void)
@@ -4610,7 +5074,19 @@ static void signal_work_update(void)
 	rd_unlock(&mining_thr_lock);
 }
 
-static void set_curblock(char *hexstr, unsigned char *bedata)
+static void signal_clean_jobs(void)
+{
+	int i;
+
+	applog(LOG_NOTICE, "Job clean message received");
+
+	rd_lock(&mining_thr_lock);
+	for (i = 0; i < mining_threads; i++)
+		mining_thr[i]->clean_jobs = true;
+	rd_unlock(&mining_thr_lock);
+}
+
+static void set_curblock(const char *hexstr, const unsigned char *bedata)
 {
 	int ofs;
 
@@ -4631,20 +5107,6 @@ static void set_curblock(char *hexstr, unsigned char *bedata)
 	applog(LOG_INFO, "New block: %s... diff %s", current_hash, block_diff);
 }
 
-/* Search to see if this string is from a block that has been seen before */
-static bool block_exists(char *hexstr)
-{
-	struct block *s;
-
-	rd_lock(&blk_lock);
-	HASH_FIND_STR(blocks, hexstr, s);
-	rd_unlock(&blk_lock);
-
-	if (s)
-		return true;
-	return false;
-}
-
 static int block_sort(struct block *blocka, struct block *blockb)
 {
 	return blocka->block_no - blockb->block_no;
@@ -4655,6 +5117,8 @@ static void set_blockdiff(const struct work *work)
 {
 	uint8_t pow = work->data[72];
 	int powdiff = (8 * (0x1d - 3)) - (8 * (pow - 3));
+	if (powdiff < 8)
+		powdiff = 8;
 	uint32_t diff32 = be32toh(*((uint32_t *)(work->data + 72))) & 0x00FFFFFF;
 	double numerator = 0xFFFFULL << powdiff;
 	double ddiff = numerator / (double)diff32;
@@ -4666,31 +5130,23 @@ static void set_blockdiff(const struct work *work)
 	}
 }
 
-static bool test_work_current(struct work *work)
+/* Search to see if this string is from a block that has been seen before */
+static bool block_exists(const char *hexstr, const unsigned char *bedata, const struct work *work)
 {
-	struct pool *pool = work->pool;
-	unsigned char bedata[32];
-	char hexstr[68];
+	int deleted_block = 0;
+	struct block *s;
 	bool ret = true;
 
-	if (work->mandatory)
-		return ret;
-
-	swap256(bedata, work->data + 4);
-	__bin2hex(hexstr, bedata, 32);
-
-	/* Search to see if this block exists yet and if not, consider it a
-	 * new block and set the current block details to this one */
-	if (!block_exists(hexstr)) {
-		struct block *s = cgcalloc(sizeof(struct block), 1);
-		int deleted_block = 0;
-
+	wr_lock(&blk_lock);
+	HASH_FIND_STR(blocks, hexstr, s);
+	if (!s) {
+		s = cgcalloc(sizeof(struct block), 1);
 		if (unlikely(!s))
-			quit (1, "test_work_current OOM");
+			quit (1, "block_exists OOM");
 		strcpy(s->hash, hexstr);
 		s->block_no = new_blocks++;
 
-		wr_lock(&blk_lock);
+		ret = false;
 		/* Only keep the last hour's worth of blocks in memory since
 		 * work from blocks before this is virtually impossible and we
 		 * want to prevent memory usage from continually rising */
@@ -4705,11 +5161,56 @@ static bool test_work_current(struct work *work)
 		}
 		HASH_ADD_STR(blocks, hash, s);
 		set_blockdiff(work);
-		wr_unlock(&blk_lock);
-
 		if (deleted_block)
 			applog(LOG_DEBUG, "Deleted block %d from database", deleted_block);
+	}
+	wr_unlock(&blk_lock);
+
+	if (!ret)
 		set_curblock(hexstr, bedata);
+	if (deleted_block)
+		applog(LOG_DEBUG, "Deleted block %d from database", deleted_block);
+
+	return ret;
+}
+
+static bool test_work_current(struct work *work)
+{
+	struct pool *pool = work->pool;
+	unsigned char bedata[32];
+	char hexstr[68];
+	bool ret = true;
+	unsigned char *bin_height = &pool->coinbase[43];
+	uint8_t cb_height_sz = bin_height[-1];
+	uint32_t height = 0;
+
+	if (work->mandatory)
+		return ret;
+
+	swap256(bedata, work->data + 4);
+	__bin2hex(hexstr, bedata, 32);
+
+	/* Calculate block height */
+	if (cb_height_sz <= 4) {
+		memcpy(&height, bin_height, cb_height_sz);
+		height = le32toh(height);
+		height--;
+	}
+
+	cg_wlock(&pool->data_lock);
+	if (pool->swork.clean) {
+		pool->swork.clean = false;
+		work->longpoll = true;
+		opt_clean_jobs = true;
+	}
+	if (pool->current_height != height) {
+		pool->current_height = height;
+	}
+	cg_wunlock(&pool->data_lock);
+
+	/* Search to see if this block exists yet and if not, consider it a
+	 * new block and set the current block details to this one */
+	if (!block_exists(hexstr, bedata, work)) {
 		/* Copy the information to this pool's prev_block since it
 		 * knows the new block exists. */
 		cg_memcpy(pool->prev_block, bedata, 32);
@@ -4722,16 +5223,18 @@ static bool test_work_current(struct work *work)
 
 		if (work->longpoll) {
 			if (work->stratum) {
-				applog(LOG_NOTICE, "Stratum from pool %d detected new block",
-				       pool->pool_no);
+				applog(LOG_NOTICE, "Stratum from pool %d detected new block at height %d",
+				       pool->pool_no, height);
 			} else {
-				applog(LOG_NOTICE, "%sLONGPOLL from pool %d detected new block",
-				       work->gbt ? "GBT " : "", work->pool->pool_no);
+				applog(LOG_NOTICE, "%sLONGPOLL from pool %d detected new block at height %d",
+				       work->gbt ? "GBT " : "", pool->pool_no, height);
 			}
 		} else if (have_longpoll && !pool->gbt_solo)
-			applog(LOG_NOTICE, "New block detected on network before pool notification");
+			applog(LOG_NOTICE, "New block detected on network before pool notification from pool %d at height %d",
+			       pool->pool_no, height);
 		else if (!pool->gbt_solo)
-			applog(LOG_NOTICE, "New block detected on network");
+			applog(LOG_NOTICE, "New block detected on network from pool %d at height %d",
+			       pool->pool_no, height);
 		restart_threads();
 	} else {
 		if (memcmp(pool->prev_block, bedata, 32)) {
@@ -4741,12 +5244,12 @@ static bool test_work_current(struct work *work)
 			 * block. */
 			if (memcmp(bedata, current_block, 32)) {
 				/* Doesn't match current block. It's stale */
-				applog(LOG_DEBUG, "Stale data from pool %d", pool->pool_no);
+				applog(LOG_DEBUG, "Stale data from pool %d at height %d", pool->pool_no, height);
 				ret = false;
 			} else {
 				/* Work is from new block and pool is up now
 				 * current. */
-				applog(LOG_INFO, "Pool %d now up to date", pool->pool_no);
+				applog(LOG_INFO, "Pool %d now up to date at height %d", pool->pool_no, height);
 				cg_memcpy(pool->prev_block, bedata, 32);
 			}
 		}
@@ -4765,7 +5268,7 @@ static bool test_work_current(struct work *work)
 					       pool->pool_no);
 				} else {
 					applog(LOG_NOTICE, "%sLONGPOLL from pool %d requested work restart",
-					       work->gbt ? "GBT " : "", work->pool->pool_no);
+					       work->gbt ? "GBT " : "", pool->pool_no);
 				}
 				restart_threads();
 			}
@@ -4981,16 +5484,21 @@ void write_config(FILE *fcfg)
 			if (opt->type & OPT_HASARG &&
 			    ((void *)opt->cb_arg == (void *)opt_set_intval ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_9999 ||
+			     (void *)opt->cb_arg == (void *)set_int_0_to_65535 ||
 			     (void *)opt->cb_arg == (void *)set_int_1_to_65535 ||
+			     (void *)opt->cb_arg == (void *)set_int_0_to_5 ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_10 ||
 			     (void *)opt->cb_arg == (void *)set_int_1_to_10 ||
+			     (void *)opt->cb_arg == (void *)set_int_24_to_32 ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_100 ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_255 ||
+			     (void *)opt->cb_arg == (void *)set_int_1_to_255 ||
+			     (void *)opt->cb_arg == (void *)set_int_0_to_7680 ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_200 ||
 			     (void *)opt->cb_arg == (void *)set_int_0_to_4 ||
 			     (void *)opt->cb_arg == (void *)set_int_32_to_63 ||
-			     (void *)opt->cb_arg == (void *)set_int_22_to_55 ||
-			     (void *)opt->cb_arg == (void *)set_int_42_to_65)) {
+			     (void *)opt->cb_arg == (void *)set_int_22_to_75 ||
+			     (void *)opt->cb_arg == (void *)set_int_42_to_85)) {
 				fprintf(fcfg, ",\n\"%s\" : \"%d\"", p+2, *(int *)opt->u.arg);
 				continue;
 			}
@@ -6141,12 +6649,10 @@ static void *stratum_rthread(void *userdata)
 
 			wait_lpcurrent(pool);
 			while (!restart_stratum(pool)) {
+				pool_died(pool);
 				if (pool->removed)
 					goto out;
-				if (enabled_pools > 1)
-					cgsleep_ms(30000);
-				else
-					cgsleep_ms(3000);
+				cgsleep_ms(5000);
 			}
 		}
 
@@ -6179,9 +6685,10 @@ static void *stratum_rthread(void *userdata)
 				restart_threads();
 
 			while (!restart_stratum(pool)) {
+				pool_died(pool);
 				if (pool->removed)
 					goto out;
-				cgsleep_ms(30000);
+				cgsleep_ms(5000);
 			}
 			continue;
 		}
@@ -6197,9 +6704,7 @@ static void *stratum_rthread(void *userdata)
 
 			/* Generate a single work item to update the current
 			 * block database */
-			pool->swork.clean = false;
 			gen_stratum_work(pool, work);
-			work->longpoll = true;
 			/* Return value doesn't matter. We're just informing
 			 * that we may need to restart. */
 			test_work_current(work);
@@ -6399,8 +6904,10 @@ static bool setup_gbt_solo(CURL *curl, struct pool *pool)
 	json_t *val = NULL, *res_val, *valid_val;
 
 	if (!opt_btc_address) {
-		applog(LOG_ERR, "No BTC address specified, unable to mine solo on %s",
-		       pool->rpc_url);
+		if (!opt_decode) {
+			applog(LOG_ERR, "No BTC address specified, unable to mine solo on %s",
+			       pool->rpc_url);
+		}
 		goto out;
 	}
 	snprintf(s, 256, "{\"id\": 1, \"method\": \"validateaddress\", \"params\": [\"%s\"]}\n", opt_btc_address);
@@ -6430,10 +6937,6 @@ static bool setup_gbt_solo(CURL *curl, struct pool *pool)
 		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
 		free(cb);
 	}
-	pool->gbt_curl = curl_easy_init();
-	if (unlikely(!pool->gbt_curl))
-		quit(1, "GBT CURL initialisation failed");
-
 out:
 	if (val)
 		json_decref(val);
@@ -6498,7 +7001,29 @@ retry_stratum:
 	if (!pool->probed) {
 		applog(LOG_DEBUG, "Probing for GBT support");
 		val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass,
-				    gbt_req, true, false, &rolltime, pool, false);
+					gbt_req, true, false, &rolltime, pool, false);
+		if (val) {
+			json_t *rules_arr = json_object_get(val, "rules");
+
+			if (!gbt_check_rules(rules_arr, gbt_understood_rules)) {
+				applog(LOG_DEBUG, "Not all rules understood for GBT");
+				json_decref(val);
+				val = NULL;
+			}
+		}
+		if (!val) {
+			json_t *rules_arr;
+
+			applog(LOG_DEBUG, "Probing for GBT solo support");
+			val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass,
+					gbt_solo_req, true, false, &rolltime, pool, false);
+			rules_arr = json_object_get(val, "rules");
+			if (!gbt_check_rules(rules_arr, gbt_solo_understood_rules)) {
+				applog(LOG_DEBUG, "Not all rules understood for GBT solo");
+				json_decref(val);
+				val = NULL;
+			}
+		}
 		if (val) {
 			bool append = false, submit = false, transactions = false;
 			json_t *res_val, *mutables;
@@ -6532,8 +7057,16 @@ retry_stratum:
 				pool->has_gbt = true;
 				pool->rpc_req = gbt_req;
 			} else if (transactions) {
-				pool->gbt_solo = true;
 				pool->rpc_req = gbt_solo_req;
+				/* Set up gbt_curl before setting gbt_solo
+				 * flag to prevent longpoll thread from
+				 * trying to use an un'inited gbt_curl */
+				pool->gbt_curl = curl_easy_init();
+				if (unlikely(!pool->gbt_curl))
+					quit(1, "GBT CURL initialisation failed");
+				pool->gbt_solo = true;
+				if (!opt_btcd)
+					opt_btcd = pool;
 			}
 		}
 		/* Reset this so we can probe fully just after this. It will be
@@ -6778,7 +7311,7 @@ void set_target(unsigned char *dest_target, double diff)
 	cg_memcpy(dest_target, target, 32);
 }
 
-#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_HASHRATIO)
+#if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
 			 uint32_t nonce2, uint32_t nonce,  uint32_t ntime)
 {
@@ -6793,11 +7326,11 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	cg_wunlock(&pool->data_lock);
 
 	gen_stratum_work(pool, work);
-	while (ntime--) {
-		roll_work(work);
-	}
+	roll_work_ntime(work, ntime);
 
 	work->pool = real_pool;
+	/* Inherit the sdiff from the original stratum */
+	work->sdiff = pool->sdiff;
 
 	work->thr_id = thr_id;
 	work->work_block = work_block;
@@ -6810,6 +7343,43 @@ bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *r
 	ret = submit_nonce(thr, work, nonce);
 	free_work(work);
 	return ret;
+}
+
+uint32_t gen_merkle_root(struct pool *pool, uint64_t nonce2)
+{
+	unsigned char merkle_root[32], merkle_sha[64];
+	uint32_t *data32, *swap32, tail;
+	uint64_t nonce2le;
+	int i;
+
+	/* Update coinbase. Always use an LE encoded nonce2 to fill in values
+	 * from left to right and prevent overflow errors with small n2sizes */
+	nonce2le = htole64(nonce2);
+	cg_memcpy(pool->coinbase + pool->nonce2_offset, &nonce2le, pool->n2size);
+
+	/* Generate merkle root */
+	gen_hash(pool->coinbase, merkle_root, pool->coinbase_len);
+	cg_memcpy(merkle_sha, merkle_root, 32);
+	for (i = 0; i < pool->merkles; i++) {
+		cg_memcpy(merkle_sha + 32, pool->swork.merkle_bin[i], 32);
+		gen_hash(merkle_sha, merkle_root, 64);
+		cg_memcpy(merkle_sha, merkle_root, 32);
+	}
+	data32 = (uint32_t *)merkle_sha;
+	swap32 = (uint32_t *)merkle_root;
+	flip32(swap32, data32);
+
+	{
+		char *merkle_hash;
+
+		merkle_hash = bin2hex((const unsigned char *)merkle_root, 32);
+		applog(LOG_DEBUG, "[M-N2]: %s-%08x-%08x", merkle_hash, (uint32_t)nonce2le, (uint32_t)nonce2);
+		free(merkle_hash);
+	}
+
+	cg_memcpy(&tail, merkle_root + 28, 4);
+
+	return tail;
 }
 #endif
 
@@ -7635,6 +8205,19 @@ struct work *find_queued_work_byid(struct cgpu_info *cgpu, uint32_t id)
 	return ret;
 }
 
+struct work *clone_queued_work_byid(struct cgpu_info *cgpu, uint32_t id)
+{
+	struct work *work, *ret = NULL;
+
+	rd_lock(&cgpu->qlock);
+	work = __find_work_byid(cgpu->queued_work, id);
+	if (work)
+		ret = copy_work(work);
+	rd_unlock(&cgpu->qlock);
+
+	return ret;
+}
+
 void __work_completed(struct cgpu_info *cgpu, struct work *work)
 {
 	cgpu->queued_count--;
@@ -7759,8 +8342,10 @@ void hash_queued_work(struct thr_info *mythr)
 		if (unlikely(mythr->pause || cgpu->deven != DEV_ENABLED))
 			mt_disable(mythr, thr_id, drv);
 
-		if (mythr->work_update)
+		if (mythr->work_update) {
 			drv->update_work(cgpu);
+			mythr->work_update = false;
+		}
 	}
 	cgpu->deven = DEV_DISABLED;
 }
@@ -8193,18 +8778,20 @@ static void prune_stratum_shares(struct pool *pool)
 static void *watchpool_thread(void __maybe_unused *userdata)
 {
 	int intervals = 0;
+	cgtimer_t cgt;
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
 	RenameThread("Watchpool");
 
 	set_lowprio();
+	cgtimer_time(&cgt);
 
 	while (42) {
 		struct timeval now;
 		int i;
 
-		if (++intervals > 20)
+		if (++intervals > 120)
 			intervals = 0;
 		cgtime(&now);
 
@@ -8217,7 +8804,7 @@ static void *watchpool_thread(void __maybe_unused *userdata)
 			}
 
 			/* Get a rolling utility per pool over 10 mins */
-			if (intervals > 19) {
+			if (intervals > 119) {
 				double shares = pool->diff1 - pool->last_shares;
 
 				pool->last_shares = pool->diff1;
@@ -8233,21 +8820,19 @@ static void *watchpool_thread(void __maybe_unused *userdata)
 			if (unlikely(pool->testing))
 				continue;
 
-			/* Test pool is idle once every minute */
-			if (pool->idle && now.tv_sec - pool->tv_idle.tv_sec > 30) {
-				if (pool_active(pool, true) && pool_tclear(pool, &pool->idle))
+			if (pool_active(pool, true)) {
+				if (pool_tclear(pool, &pool->idle))
 					pool_resus(pool);
-				else
-					cgtime(&pool->tv_idle);
-			}
+			} else
+				cgtime(&pool->tv_idle);
 
 			/* Only switch pools if the failback pool has been
 			 * alive for more than 5 minutes to prevent
 			 * intermittently failing pools from being used. */
 			if (!pool->idle && pool_strategy == POOL_FAILOVER && pool->prio < cp_prio() &&
-			    now.tv_sec - pool->tv_idle.tv_sec > 300) {
-				applog(LOG_WARNING, "Pool %d %s stable for 5 mins",
-				       pool->pool_no, pool->rpc_url);
+			    now.tv_sec - pool->tv_idle.tv_sec > opt_pool_fallback) {
+				applog(LOG_WARNING, "Pool %d %s stable for >%d seconds",
+				       pool->pool_no, pool->rpc_url, opt_pool_fallback);
 				switch_pools(NULL);
 			}
 		}
@@ -8260,8 +8845,8 @@ static void *watchpool_thread(void __maybe_unused *userdata)
 			switch_pools(NULL);
 		}
 
-		cgsleep_ms(30000);
-
+		cgsleep_ms_r(&cgt, 5000);
+		cgtimer_time(&cgt);
 	}
 	return NULL;
 }
@@ -8409,7 +8994,7 @@ static void *watchdog_thread(void __maybe_unused *userdata)
 			snprintf(dev_str, sizeof(dev_str), "%s %d", cgpu->drv->name, cgpu->device_id);
 
 			/* Thread is waiting on getwork or disabled */
-			if (thr->getwork || *denable == DEV_DISABLED)
+			if (thr->getwork || *denable == DEV_DISABLED || thr->pause)
 				continue;
 
 			if (cgpu->status != LIFE_WELL && (now.tv_sec - thr->last.tv_sec < WATCHDOG_SICK_TIME)) {
@@ -8915,10 +9500,16 @@ static void noop_hash_work(struct thr_info __maybe_unused *thr)
 {
 }
 
+static void generic_zero_stats(struct cgpu_info *cgpu)
+{
+	cgpu->diff_accepted =
+	cgpu->diff_rejected =
+	cgpu->hw_errors = 0;
+}
+
 #define noop_flush_work noop_reinit_device
 #define noop_update_work noop_reinit_device
 #define noop_queue_full noop_get_stats
-#define noop_zero_stats noop_reinit_device
 #define noop_identify_device noop_reinit_device
 
 /* Fill missing driver drv functions with noops */
@@ -8957,11 +9548,13 @@ void fill_device_drv(struct device_drv *drv)
 	if (!drv->queue_full)
 		drv->queue_full = &noop_queue_full;
 	if (!drv->zero_stats)
-		drv->zero_stats = &noop_zero_stats;
+		drv->zero_stats = &generic_zero_stats;
 	/* If drivers support internal diff they should set a max_diff or
 	 * we will assume they don't and set max to 1. */
 	if (!drv->max_diff)
 		drv->max_diff = 1;
+	if (!drv->genwork)
+		opt_gen_stratum_work = true;
 }
 
 void null_device_drv(struct device_drv *drv)
@@ -8987,7 +9580,7 @@ void null_device_drv(struct device_drv *drv)
 	drv->thread_shutdown = &noop_thread_shutdown;
 	drv->thread_enable = &noop_thread_enable;
 
-	drv->zero_stats = &noop_zero_stats;
+	drv->zero_stats = &generic_zero_stats;
 
 	drv->hash_work = &noop_hash_work;
 
@@ -8995,7 +9588,6 @@ void null_device_drv(struct device_drv *drv)
 	drv->flush_work = &noop_flush_work;
 	drv->update_work = &noop_update_work;
 
-	drv->zero_stats = &noop_zero_stats;
 	drv->max_diff = 1;
 	drv->min_diff = 1;
 }
@@ -9158,6 +9750,23 @@ static void hotplug_process(void)
 
 #define DRIVER_DRV_DETECT_HOTPLUG(X) X##_drv.drv_detect(true);
 
+static void reinit_usb(void)
+{
+	int err;
+
+	usb_reinit = true;
+	/* Wait till libusb_poll_thread is no longer polling */
+	while (polling_usb)
+		cgsleep_ms(100);
+
+	applog(LOG_DEBUG, "Reinitialising libusb");
+	libusb_exit(NULL);
+	err = libusb_init(NULL);
+	if (err)
+		quit(1, "Reinit of libusb failed err %d:%s", err, libusb_error_name(err));
+	usb_reinit = false;
+}
+
 static void *hotplug_thread(void __maybe_unused *userdata)
 {
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -9183,6 +9792,11 @@ static void *hotplug_thread(void __maybe_unused *userdata)
 
 			if (new_devices)
 				hotplug_process();
+
+			/* If we have no active devices, libusb may need to
+			 * be re-initialised to work properly */
+			if (total_devices == zombie_devs)
+				reinit_usb();
 
 			// hotplug_time >0 && <=9999
 			cgsleep_ms(hotplug_time * 1000);
@@ -9211,20 +9825,29 @@ static void probe_pools(void)
 #ifdef USE_USBUTILS
 static void *libusb_poll_thread(void __maybe_unused *arg)
 {
-	struct timeval tv_end = {0, 100000};
+	struct timeval tv_end;
 
 	RenameThread("USBPoll");
 
-	while (likely(usb_polling))
+	while (likely(usb_polling)) {
+		tv_end.tv_sec = 0;
+		tv_end.tv_usec = 100000;
+		while (usb_reinit) {
+			polling_usb = false;
+			cgsleep_ms(100);
+		}
+		polling_usb = true;
 		libusb_handle_events_timeout_completed(NULL, &tv_end, NULL);
+	}
 
 	/* Cancel any cancellable usb transfers */
 	cancel_usb_transfers();
 
 	/* Keep event handling going until there are no async transfers in
 	 * flight. */
-	tv_end.tv_sec = 0;
 	while (async_usb_transfers()) {
+		tv_end.tv_sec = 0;
+		tv_end.tv_usec = 0;
 		libusb_handle_events_timeout_completed(NULL, &tv_end, NULL);
 	};
 
@@ -9391,7 +10014,7 @@ int main(int argc, char *argv[])
 	}
 
 #ifdef HAVE_CURSES
-	if (opt_realquiet || opt_display_devs)
+	if (opt_realquiet || opt_display_devs || opt_decode)
 		use_curses = false;
 
 	if (use_curses)
@@ -9435,6 +10058,12 @@ int main(int argc, char *argv[])
 
 	gwsched_thr_id = 0;
 
+#ifdef USE_AVALON7
+	if (opt_avalon7_ssplus_enable) {
+		ssp_sorter_init(HT_SIZE, HT_PRB_LMT, HT_PRB_C1, HT_PRB_C2);
+		ssp_hasher_init();
+	}
+#endif
 #ifdef USE_USBUTILS
 	usb_initialise();
 
@@ -9469,15 +10098,17 @@ int main(int argc, char *argv[])
 	for (i = 0; i < total_devices; ++i)
 		enable_device(devices[i]);
 
+	if (!opt_decode) {
 #ifdef USE_USBUTILS
-	if (!total_devices) {
-		applog(LOG_WARNING, "No devices detected!");
-		applog(LOG_WARNING, "Waiting for USB hotplug devices or press q to quit");
-	}
+		if (!total_devices) {
+			applog(LOG_WARNING, "No devices detected!");
+			applog(LOG_WARNING, "Waiting for USB hotplug devices or press q to quit");
+		}
 #else
-	if (!total_devices)
-		early_quit(1, "All devices disabled, cannot mine!");
+		if (!total_devices)
+			early_quit(1, "All devices disabled, cannot mine!");
 #endif
+	}
 
 	most_devices = total_devices;
 
@@ -9682,7 +10313,13 @@ begin_bench:
 
 		if (opt_work_update)
 			signal_work_update();
+
 		opt_work_update = false;
+
+		if (opt_clean_jobs) {
+			signal_clean_jobs();
+			opt_clean_jobs = false;
+		}
 
 		mutex_lock(stgd_lock);
 		ts = __total_staged();
@@ -9719,9 +10356,11 @@ begin_bench:
 				cgsleep_ms(5);
 		};
 		if (pool->has_stratum) {
-			gen_stratum_work(pool, work);
-			applog(LOG_DEBUG, "Generated stratum work");
-			stage_work(work);
+			if (opt_gen_stratum_work) {
+				gen_stratum_work(pool, work);
+				applog(LOG_DEBUG, "Generated stratum work");
+				stage_work(work);
+			}
 			continue;
 		}
 

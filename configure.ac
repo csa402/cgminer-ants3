@@ -93,7 +93,7 @@ case $target in
     WS2_LIBS="-lws2_32"
     MM_LIBS="-lwinmm"
     RT_LIBS=""
-    AC_DEFINE([_WIN32_WINNT], [0x0501], "WinNT version for XP+ support")
+    #AC_DEFINE([_WIN32_WINNT], [0x0501], "WinNT version for XP+ support")
     ;;
   powerpc-*-darwin*)
     have_darwin=true
@@ -208,6 +208,27 @@ if test "x$avalon4" = xyes; then
 fi
 AM_CONDITIONAL([HAS_AVALON4], [test x$avalon4 = xyes])
 
+avalon7="no"
+
+AC_ARG_ENABLE([avalon7],
+	[AC_HELP_STRING([--enable-avalon7],[Compile support for Avalon7 (default disabled)])],
+	[avalon7=$enableval]
+	)
+if test "x$avalon7" = xyes; then
+	AC_DEFINE([USE_AVALON7], [1], [Defined to 1 if Avalon7 support is wanted])
+fi
+AM_CONDITIONAL([HAS_AVALON7], [test x$avalon7 = xyes])
+
+avalon_miner="no"
+
+AC_ARG_ENABLE([avalon_miner],
+	[AC_HELP_STRING([--enable-avalon-miner],[Compile support for Avalon miner(default disabled)])],
+	[avalon_miner=$enableval]
+	)
+if test "x$avalon_miner" = xyes; then
+	AC_DEFINE([USE_AVALON_MINER], [1], [Defined to 1 if Avalon miner support is wanted])
+fi
+AM_CONDITIONAL([HAS_AVALON_MINER], [test x$avalon_miner = xyes])
 
 bab="no"
 
@@ -261,6 +282,18 @@ if test "x$bitfury" = xyes; then
 fi
 AM_CONDITIONAL([HAS_BITFURY], [test x$bitfury = xyes])
 
+bitfury16="no"
+
+AC_ARG_ENABLE([bitfury16],
+	[AC_HELP_STRING([--enable-bitfury16],[Compile support for BitFury 16nm ASICs STANDALONE(default disabled)])],
+	[bitfury16=$enableval]
+	)
+if test "x$bitfury16" = xyes; then
+	AC_DEFINE([USE_BITFURY16], [1], [Defined to 1 if BitFury 16nm ASIC support is wanted])
+	drivercount=x$drivercount
+	standalone="yes"
+fi
+AM_CONDITIONAL([HAS_BITFURY16], [test x$bitfury16 = xyes])
 
 bitmine_A1="no"
 
@@ -456,7 +489,7 @@ AC_ARG_WITH([curses],
 if test "x$curses" = "xno"; then
 	cursesmsg='User specified --without-curses. TUI support DISABLED'
 else
-	AC_SEARCH_LIBS(addstr, ncurses pdcurses, [
+	AC_SEARCH_LIBS(addstr, pdcurses ncurses pdcurses, [
 		curses=yes
 		cursesmsg="FOUND: ${ac_cv_search_addstr}"
 		AC_DEFINE([HAVE_CURSES], [1], [Defined to 1 if curses TUI support is wanted])
@@ -473,7 +506,7 @@ fi
 
 
 #Add a new device to this list if it needs libusb, along with a no on the end.
-if test x$avalon$avalon2$avalon4$bitforce$bitfury$blockerupter$modminer$bflsc$icarus$hashfast$hashratio$klondike$drillbit$cointerra$ants1$ants3 != xnononononononononononononononono; then
+if test x$avalon$avalon2$avalon4$avalon7$avalon_miner$bitforce$bitfury$blockerupter$modminer$bflsc$icarus$hashfast$hashratio$klondike$drillbit$cointerra$ants1$ants3 != xnononononononononononononononononono; then
 	want_usbutils=true
 else
 	want_usbutils=false
@@ -485,7 +518,7 @@ else
 	want_libbitfury=false
 fi
 
-if test x$avalon2$avalon4$hashratio != xnonono; then
+if test x$avalon2$avalon4$avalon7$avalon_miner$hashratio != xnonononono; then
 	want_crc16=true
 else
 	want_crc16=false
@@ -498,6 +531,8 @@ AM_CONDITIONAL([HAVE_CURSES], [test x$curses = xyes])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([HAVE_x86_64], [test x$have_x86_64 = xtrue])
 AM_CONDITIONAL([WANT_CRC16], [test x$want_crc16 != xfalse])
+AM_CONDITIONAL([NEED_I2C_CONTEXT], [test x$avalon4$avalon7 != xnono])
+AM_CONDITIONAL([SUPPORT_SSP], [test x$avalon7 != xno])
 
 if test "x$want_usbutils" != xfalse; then
 	dlibusb="no"
@@ -560,8 +595,8 @@ if test "x$djansson" != xno; then
 			;;
 	esac
 else
-	AC_CONFIG_SUBDIRS([compat/jansson-2.6])
-	JANSSON_LIBS="compat/jansson-2.6/src/.libs/libjansson.a"
+	AC_CONFIG_SUBDIRS([compat/jansson-2.9])
+	JANSSON_LIBS="compat/jansson-2.9/src/.libs/libjansson.a"
 fi
 
 AM_CONDITIONAL([WANT_STATIC_JANSSON], [test x$djansson = xno])
@@ -582,7 +617,7 @@ AC_SUBST(LIBUSB_LIBS)
 AC_SUBST(LIBUSB_CFLAGS)
 
 AC_ARG_ENABLE([libcurl],
-	[AC_HELP_STRING([--disable-libcurl],[Disable building with libcurl for getwork and GBT support])],
+	[AC_HELP_STRING([--disable-libcurl],[Disable building with libcurl for GBT support])],
 	[libcurl=$enableval]
 	)
 
@@ -696,9 +731,9 @@ echo "Configuration Options Summary:"
 echo
 
 if test "x$libcurl" != xno; then
-	echo "  libcurl(GBT+getwork).: Enabled: $LIBCURL_LIBS"
+	echo "  libcurl(GBT).: Enabled: $LIBCURL_LIBS"
 else
-	echo "  libcurl(GBT+getwork).: Disabled"
+	echo "  libcurl(GBT).: Disabled"
 fi
 
 if test "x$libsystemd" != xno; then
@@ -747,6 +782,18 @@ else
 	echo "  Avalon4.ASICs........: Disabled"
 fi
 
+if test "x$avalon7" = xyes; then
+	echo "  Avalon7.ASICs........: Enabled"
+else
+	echo "  Avalon7.ASICs........: Disabled"
+fi
+
+if test "x$avalon_miner" = xyes; then
+	echo "  Avalon miner.ASICs...: Enabled"
+else
+	echo "  Avalon miner.ASICs...: Disabled"
+fi
+
 if test "x$minion" = xyes; then
 	echo "  BlackArrowMinion.ASIC: Enabled"
 else
@@ -775,6 +822,12 @@ if test "x$bitfury" = xyes; then
 	echo "  BitFury.ASICs........: Enabled"
 else
 	echo "  BitFury.ASICs........: Disabled"
+fi
+
+if test "x$bitfury16" = xyes; then
+	echo "  BitFury16.ASICs......: Enabled"
+else
+	echo "  BitFury16.ASICs......: Disabled"
 fi
 
 if test "x$blockerupter" = xyes; then
@@ -852,7 +905,7 @@ else
 fi
 
 #Add any new device to this, along with a no on the end of the test
-if test "x$avalon$avalon2$avalon4$bab$bflsc$bitforce$bitfury$blockerupter$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30" = xnonononononononononononononononononononononono; then
+if test "x$avalon$avalon2$avalon4$avalon7$avalon_miner$bab$bflsc$bitforce$bitfury$bitfury16$blockerupter$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30" = xnononononononononononononononononononononononononono; then
 	echo
 	AC_MSG_ERROR([No mining devices configured in])
 	echo

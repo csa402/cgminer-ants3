@@ -70,6 +70,8 @@ static cgtimer_t usb11_cgt;
 #define MODMINER_TIMEOUT_MS 999
 #define AVALON_TIMEOUT_MS 999
 #define AVALON4_TIMEOUT_MS 999
+#define AVALON7_TIMEOUT_MS 999
+#define AVALONM_TIMEOUT_MS 999
 #define KLONDIKE_TIMEOUT_MS 999
 #define COINTERRA_TIMEOUT_MS 999
 #define HASHFAST_TIMEOUT_MS 999
@@ -86,6 +88,8 @@ static cgtimer_t usb11_cgt;
 #define MODMINER_TIMEOUT_MS 100
 #define AVALON_TIMEOUT_MS 200
 #define AVALON4_TIMEOUT_MS 200
+#define AVALON7_TIMEOUT_MS 200
+#define AVALONM_TIMEOUT_MS 300
 #define KLONDIKE_TIMEOUT_MS 200
 #define COINTERRA_TIMEOUT_MS 200
 #define HASHFAST_TIMEOUT_MS 500
@@ -287,7 +291,34 @@ static struct usb_intinfo ava4_ints[] = {
 	USB_EPS(1, ava4_epinfos)
 };
 #endif
+#ifdef USE_AVALON7
+static struct usb_epinfo ava7_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(1), 0, 0 }
+};
 
+static struct usb_intinfo ava7_ints[] = {
+	USB_EPS(1, ava7_epinfos)
+};
+#endif
+#ifdef USE_AVALON_MINER
+static struct usb_epinfo avam_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_INTERRUPT,	40,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_INTERRUPT,	40,	EPO(1), 0, 0 }
+};
+
+static struct usb_intinfo avam_ints[] = {
+	USB_EPS(1, avam_epinfos)
+};
+static struct usb_epinfo av3u_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_INTERRUPT,	40,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_INTERRUPT,	40,	EPO(1), 0, 0 }
+};
+
+static struct usb_intinfo av3u_ints[] = {
+	USB_EPS(0, av3u_epinfos)
+};
+#endif
 #ifdef USE_KLONDIKE
 static struct usb_epinfo kln_epinfos[] = {
 	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
@@ -662,6 +693,47 @@ static struct usb_find_devices find_dev[] = {
 		.latency = LATENCY_UNUSED,
 		INTINFO(ava4_ints) },
 #endif
+#ifdef USE_AVALON7
+	{
+		.drv = DRIVER_avalon7,
+		.name = "AV7",
+		.ident = IDENT_AV7,
+		.idVendor = 0x29f1,
+		.idProduct = 0x33f2,
+		.iManufacturer = "CANAAN",
+		.iProduct = "USB2IIC Converter",
+		.config = 1,
+		.timeout = AVALON7_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(ava7_ints) },
+#endif
+#ifdef USE_AVALON_MINER
+	{
+		.drv = DRIVER_avalonm,
+		.name = "AV4M",
+		.ident = IDENT_AVM,
+		.idVendor = 0x29f1,
+		.idProduct = 0x40f1,
+		.iManufacturer = "CANAAN",
+		.iProduct = "Avalon4 mini",
+		.config = 1,
+		.timeout = AVALONM_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(avam_ints) },
+	{
+		.drv = DRIVER_avalonm,
+		.name = "AV3U",
+		.ident = IDENT_AVM,
+		.idVendor = 0x29f1,
+		.idProduct = 0x33f3,
+		.iManufacturer = "CANAAN",
+		.iProduct = "Avalon nano",
+		.config = 1,
+		.timeout = AVALONM_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(av3u_ints) },
+
+#endif
 #ifdef USE_HASHFAST
 	{
 		.drv = DRIVER_hashfast,
@@ -731,6 +803,30 @@ static struct usb_find_devices find_dev[] = {
  		.timeout = ICARUS_TIMEOUT_MS,
  		.latency = LATENCY_UNUSED,
  		INTINFO(ica1_ints) },
+	{
+		.drv = DRIVER_icarus,
+		.name = "BSC",
+		.ident = IDENT_BSC,
+		.idVendor = 0x10c4,
+		.idProduct = 0xea60,
+		.iManufacturer = "bitshopperde",
+		.iProduct = "Compac BM1384 Bitcoin Miner",
+		.config = 1,
+		.timeout = ICARUS_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(amu_ints) },
+	{
+		.drv = DRIVER_icarus,
+		.name = "GSC",
+		.ident = IDENT_GSC,
+		.idVendor = 0x10c4,
+		.idProduct = 0xea60,
+		.iManufacturer = "GekkoScience",
+		.iProduct = "Compac BM1384 Bitcoin Miner",
+		.config = 1,
+		.timeout = ICARUS_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(amu_ints) },
 	{
 		.drv = DRIVER_icarus,
 		.name = "AMU",
@@ -1869,10 +1965,10 @@ static void _usb_uninit(struct cgpu_info *cgpu)
 		for (ifinfo = cgpu->usbdev->found->intinfo_count - 1; ifinfo >= 0; ifinfo--) {
 			libusb_release_interface(cgpu->usbdev->handle,
 						 THISIF(cgpu->usbdev->found, ifinfo));
-		}
 #ifdef LINUX
-		libusb_attach_kernel_driver(cgpu->usbdev->handle, THISIF(cgpu->usbdev->found, ifinfo));
+			libusb_attach_kernel_driver(cgpu->usbdev->handle, THISIF(cgpu->usbdev->found, ifinfo));
 #endif
+		}
 		cg_wlock(&cgusb_fd_lock);
 		libusb_close(cgpu->usbdev->handle);
 		cgpu->usbdev->handle = NULL;
@@ -2431,11 +2527,14 @@ bool usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct usb_find
 		}
 	}
 
-	if (ret == USB_INIT_FAIL)
-		applog(LOG_ERR, "%s detect (%d:%d) failed to initialise (incorrect device?)",
+	if (ret == USB_INIT_FAIL) {
+		applog(LOG_ERR, "%s detect (%d:%d) failed to initialise (incorrect device?), resetting",
 				cgpu->drv->dname,
 				(int)(cgpu->usbinfo.bus_number),
 				(int)(cgpu->usbinfo.device_address));
+		if (cgpu->usbdev && cgpu->usbdev->handle)
+			libusb_reset_device(cgpu->usbdev->handle);
+	}
 
 	return (ret == USB_INIT_OK);
 }
@@ -3104,18 +3203,15 @@ void usb_reset(struct cgpu_info *cgpu)
 {
 	int pstate, err = 0;
 
-	DEVRLOCK(cgpu, pstate);
+	DEVWLOCK(cgpu, pstate);
 	if (!cgpu->usbinfo.nodev) {
 		err = libusb_reset_device(cgpu->usbdev->handle);
 		applog(LOG_WARNING, "%s %i attempted reset got err:(%d) %s",
 			cgpu->drv->name, cgpu->device_id, err, libusb_error_name(err));
 	}
-	if (NODEV(err)) {
-		cg_ruwlock(&cgpu->usbinfo.devlock);
+	if (NODEV(err))
 		release_cgpu(cgpu);
-		DEVWUNLOCK(cgpu, pstate);
-	} else
-		DEVRUNLOCK(cgpu, pstate);
+	DEVWUNLOCK(cgpu, pstate);
 }
 
 int _usb_read(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t bufsiz,
@@ -3183,6 +3279,9 @@ int _usb_read(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t
 		err = usb_perform_transfer(cgpu, usbdev, intinfo, epinfo, ptr, usbbufread,
 					&got, timeout, MODE_BULK_READ, cmd,
 					first ? SEQ0 : SEQ1, cancellable, false);
+		if (NODEV(err))
+			goto out_noerrmsg;
+
 		cgtime(&tv_finish);
 		ptr[got] = '\0';
 
@@ -3218,6 +3317,10 @@ int _usb_read(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t
 		} else {
 			tried_reset = 0;
 		}
+
+		if (NODEV(err))
+			goto out_noerrmsg;
+
 		ptr += got;
 		bufleft -= got;
 		if (bufleft < 1)
@@ -3320,6 +3423,9 @@ int _usb_write(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_
 		err = usb_perform_transfer(cgpu, usbdev, intinfo, epinfo, (unsigned char *)buf,
 					tosend, &sent, timeout, MODE_BULK_WRITE,
 					cmd, first ? SEQ0 : SEQ1, false, usbdev->tt);
+		if (NODEV(err))
+			goto out_noerrmsg;
+
 		cgtime(&tv_finish);
 
 		USBDEBUG("USB debug: @_usb_write(%s (nodev=%s)) err=%d%s sent=%d", cgpu->drv->name, bool_str(cgpu->usbinfo.nodev), err, isnodev(err), sent);
@@ -3706,6 +3812,8 @@ void usb_cleanup(void)
 			case DRIVER_avalon:
 			case DRIVER_avalon2:
 			case DRIVER_avalon4:
+			case DRIVER_avalon7:
+			case DRIVER_avalonm:
 			case DRIVER_klondike:
 			case DRIVER_hashfast:
 				DEVWLOCK(cgpu, pstate);
@@ -3867,7 +3975,8 @@ union semun {
 #else
 static LPSECURITY_ATTRIBUTES unsec(LPSECURITY_ATTRIBUTES sec)
 {
-	FreeSid(((PSECURITY_DESCRIPTOR)(sec->lpSecurityDescriptor))->Group);
+	SECURITY_DESCRIPTOR *sd = (PSECURITY_DESCRIPTOR)(sec->lpSecurityDescriptor);
+	FreeSid(sd->Group);
 	free(sec->lpSecurityDescriptor);
 	free(sec);
 	return NULL;
@@ -3880,7 +3989,7 @@ static LPSECURITY_ATTRIBUTES mksec(const char *dname, uint8_t bus_number, uint8_
 	LPSECURITY_ATTRIBUTES sec_att = NULL;
 	PSECURITY_DESCRIPTOR sec_des = NULL;
 
-	sec_des = cgmalloc(sizeof(*sec_des));
+	sec_des = cgmalloc(SECURITY_DESCRIPTOR_MIN_LENGTH);
 
 	if (!InitializeSecurityDescriptor(sec_des, SECURITY_DESCRIPTOR_REVISION)) {
 		applog(LOG_ERR,

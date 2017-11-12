@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2015 Con Kolivas
+ * Copyright 2011-2017 Con Kolivas
  * Copyright 2011-2015 Andrew Smith
  * Copyright 2010 Jeff Garzik
  *
@@ -44,8 +44,16 @@
 #include "elist.h"
 #include "compat.h"
 #include "util.h"
+#include "libssplus.h"
+
+#ifdef USE_AVALON7
+#include "driver-avalon7.h"
+#endif
 
 #define DEFAULT_SOCKWAIT 60
+#ifndef STRATUM_USER_AGENT
+#define STRATUM_USER_AGENT
+#endif
 
 bool successful_connect = false;
 
@@ -640,7 +648,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	if (likely(global_hashrate)) {
 		char ghashrate[255];
 
-		sprintf(ghashrate, "X-Mining-Hashrate: %llu", global_hashrate);
+		sprintf(ghashrate, "X-Mining-Hashrate: %"PRIu64, global_hashrate);
 		headers = curl_slist_append(headers, ghashrate);
 	}
 
@@ -1441,7 +1449,7 @@ void cgtimer_sub(cgtimer_t *a, cgtimer_t *b, cgtimer_t *res)
 }
 #endif /* WIN32 */
 
-#if defined(CLOCK_MONOTONIC) && !defined(__FreeBSD__) /* Essentially just linux */
+#if defined(CLOCK_MONOTONIC) && !defined(__FreeBSD__) && !defined(__APPLE__) && !defined(WIN32) /* Essentially just linux */
 //#ifdef CLOCK_MONOTONIC /* Essentially just linux */
 void cgtimer_time(cgtimer_t *ts_start)
 {
@@ -1685,13 +1693,13 @@ bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port)
 
 	if (url_len < 1)
 		return false;
-	
+
 	/* Get rid of the [] */
 	if (ipv6_begin && ipv6_end && ipv6_end > ipv6_begin) {
 		url_len -= 2;
 		url_begin++;
 	}
-	
+
 	snprintf(url_address, 254, "%.*s", url_len, url_begin);
 
 	if (port_len) {
@@ -1723,9 +1731,6 @@ static enum send_ret __stratum_send(struct pool *pool, char *s, ssize_t len)
 {
 	SOCKETTYPE sock = pool->sock;
 	ssize_t ssent = 0;
-
-	if (opt_protocol)
-		applog(LOG_DEBUG, "SEND: %s", s);
 
 	strcat(s, "\n");
 	len++;
@@ -1767,6 +1772,9 @@ retry:
 bool stratum_send(struct pool *pool, char *s, ssize_t len)
 {
 	enum send_ret ret = SEND_INACTIVE;
+
+	if (opt_protocol)
+		applog(LOG_DEBUG, "SEND: %s", s);
 
 	mutex_lock(&pool->stratum_lock);
 	if (pool->stratum_active)
@@ -1842,7 +1850,7 @@ static void clear_sock(struct pool *pool)
 }
 
 /* Realloc memory to new size and zero any extra memory added */
-void _recalloc(void **ptr, size_t old, size_t new, const char *file, const char *func, const int line)
+void ckrecalloc(void **ptr, size_t old, size_t new, const char *file, const char *func, const int line)
 {
 	if (new == old)
 		return;
@@ -1974,10 +1982,47 @@ static char *json_array_string(json_t *val, unsigned int entry)
 
 static char *blank_merkle = "0000000000000000000000000000000000000000000000000000000000000000";
 
+#ifdef HAVE_LIBCURL
+static void decode_exit(struct pool *pool, char *cb)
+{
+	CURL *curl = curl_easy_init();
+	char *decreq, *s;
+	json_t *val;
+	int dummy;
+
+	if (!opt_btcd && !sleep(3) && !opt_btcd) {
+		applog(LOG_ERR, "No bitcoind specified, unable to decode coinbase.");
+		exit(1);
+	}
+	decreq = cgmalloc(strlen(cb) + 256);
+
+	sprintf(decreq, "{\"id\": 0, \"method\": \"decoderawtransaction\", \"params\": [\"%s\"]}\n",
+		cb);
+	val = json_rpc_call(curl, opt_btcd->rpc_url, opt_btcd->rpc_userpass, decreq,
+			    false, false, &dummy, opt_btcd, false);
+	free(decreq);
+	if (!val) {
+		applog(LOG_ERR, "Failed json_rpc_call to btcd %s", opt_btcd->rpc_url);
+		exit(1);
+	}
+	s = json_dumps(val, JSON_INDENT(4));
+	printf("Pool %s:\n%s\n", pool->rpc_url, s);
+	free(s);
+	exit(0);
+}
+#else
+static void decode_exit(struct pool __maybe_unused *pool, char __maybe_unused *b)
+{
+}
+#endif
+
 static bool parse_notify(struct pool *pool, json_t *val)
 {
+	static int32_t th_clean_jobs;
+	static struct timeval last_notify;
+	struct timeval current;
 	char *job_id, *prev_hash, *coinbase1, *coinbase2, *bbversion, *nbit,
-	     *ntime, header[228];
+	     *ntime, header[260];
 	unsigned char *cb1 = NULL, *cb2 = NULL;
 	size_t cb1_len, cb2_len, alloc_len;
 	bool clean, ret = false;
@@ -2012,15 +2057,21 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	cg_wlock(&pool->data_lock);
 	free(pool->swork.job_id);
 	pool->swork.job_id = job_id;
+	if (memcmp(pool->prev_hash, prev_hash, 64)) {
+		pool->swork.clean = true;
+	} else {
+		pool->swork.clean = clean;
+	}
 	snprintf(pool->prev_hash, 65, "%s", prev_hash);
 	cb1_len = strlen(coinbase1) / 2;
 	cb2_len = strlen(coinbase2) / 2;
 	snprintf(pool->bbversion, 9, "%s", bbversion);
 	snprintf(pool->nbit, 9, "%s", nbit);
 	snprintf(pool->ntime, 9, "%s", ntime);
-	pool->swork.clean = clean;
 	if (pool->next_diff > 0) {
 		pool->sdiff = pool->next_diff;
+		pool->next_diff = pool->diff_after;
+		pool->diff_after = 0;
 	}
 	alloc_len = pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
 	pool->nonce2_offset = cb1_len + pool->n1_len;
@@ -2058,7 +2109,7 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	/* nonce */		 8 +
 	/* workpadding */	 96;
 #endif
-	snprintf(header, 225,
+	snprintf(header, 257,
 		"%s%s%s%s%s%s%s",
 		pool->bbversion,
 		pool->prev_hash,
@@ -2067,7 +2118,8 @@ static bool parse_notify(struct pool *pool, json_t *val)
 		pool->nbit,
 		"00000000", /* nonce */
 		workpadding);
-	ret = hex2bin(pool->header_bin, header, 112);
+
+	ret = hex2bin(pool->header_bin, header, 128);
 	if (unlikely(!ret)) {
 		applog(LOG_ERR, "Failed to convert header to header_bin in parse_notify");
 		goto out_unlock;
@@ -2088,11 +2140,14 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	free(pool->coinbase);
 	pool->coinbase = cgcalloc(alloc_len, 1);
 	cg_memcpy(pool->coinbase, cb1, cb1_len);
-	cg_memcpy(pool->coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
+	if (pool->n1_len)
+		cg_memcpy(pool->coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
 	cg_memcpy(pool->coinbase + cb1_len + pool->n1_len + pool->n2size, cb2, cb2_len);
-	if (opt_debug) {
+	if (opt_debug || opt_decode) {
 		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
 
+		if (opt_decode)
+			decode_exit(pool, cb);
 		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
 		free(cb);
 	}
@@ -2115,8 +2170,41 @@ out_unlock:
 	/* A notify message is the closest stratum gets to a getwork */
 	pool->getwork_requested++;
 	total_getworks++;
-	if (pool == current_pool())
+	if (pool == current_pool()) {
 		opt_work_update = true;
+#ifdef USE_AVALON7
+		if (opt_avalon7_ssplus_enable & pool->has_stratum) {
+			/* -1:Ignore, 0:Accept, n:Accept after n seconds, n > 0 */
+			if (opt_force_clean_jobs == -1 && clean)
+				opt_clean_jobs = true;
+
+			if (!opt_force_clean_jobs)
+				opt_clean_jobs = true;
+
+			if (opt_force_clean_jobs > 0) {
+				if (clean)
+					opt_clean_jobs = true;
+				else {
+					if (!last_notify.tv_sec && !last_notify.tv_usec)
+						cgtime(&last_notify);
+					else {
+						cgtime(&current);
+						th_clean_jobs += (int32_t)ms_tdiff(&current, &last_notify);
+						cgtime(&last_notify);
+					}
+
+					if (th_clean_jobs >= opt_force_clean_jobs * 1000)
+						opt_clean_jobs = true;
+				}
+			}
+
+			if (opt_clean_jobs) {
+				ssp_hasher_update_stratum(pool, true);
+				th_clean_jobs = 0;
+			}
+		}
+#endif
+	}
 out:
 	return ret;
 }
@@ -2126,17 +2214,17 @@ static bool parse_diff(struct pool *pool, json_t *val)
 	double old_diff, diff;
 
 	diff = json_number_value(json_array_get(val, 0));
-	if (diff == 0)
+	if (diff <= 0)
 		return false;
 
+	/* We can only change one diff per notify so assume diffs are being
+	 * stacked for successive notifies. */
 	cg_wlock(&pool->data_lock);
-	if (pool->next_diff > 0) {
-		old_diff = pool->next_diff;
+	if (pool->next_diff)
+		pool->diff_after = diff;
+	else
 		pool->next_diff = diff;
-	} else {
-		old_diff = pool->sdiff;
-		pool->next_diff = pool->sdiff = diff;
-	}
+	old_diff = pool->sdiff;
 	cg_wunlock(&pool->data_lock);
 
 	if (old_diff != diff) {
@@ -2272,7 +2360,7 @@ static bool send_version(struct pool *pool, json_t *val)
 		return false;
 	id = json_integer_value(json_object_get(val, "id"));
 
-	sprintf(s, "{\"id\": %d, \"result\": \""PACKAGE"/"VERSION"\", \"error\": null}", id);
+	sprintf(s, "{\"id\": %d, \"result\": \""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\", \"error\": null}", id);
 	if (!stratum_send(pool, s, strlen(s)))
 		return false;
 
@@ -2950,7 +3038,7 @@ void suspend_stratum(struct pool *pool)
 bool initiate_stratum(struct pool *pool)
 {
 	bool ret = false, recvd = false, noresume = false, sockd = false;
-	char s[RBUFSIZE], *sret = NULL, *nonce1, *sessionid;
+	char s[RBUFSIZE], *sret = NULL, *nonce1, *sessionid, *tmp;
 	json_t *val = NULL, *res_val, *err_val;
 	json_error_t err;
 	int n2size;
@@ -2969,9 +3057,9 @@ resend:
 		sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": []}", swork_id++);
 	} else {
 		if (pool->sessionid)
-			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION"\", \"%s\"]}", swork_id++, pool->sessionid);
+			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\", \"%s\"]}", swork_id++, pool->sessionid);
 		else
-			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION"\"]}", swork_id++);
+			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\"]}", swork_id++);
 	}
 
 	if (__stratum_send(pool, s, strlen(s)) != SEND_OK) {
@@ -3023,6 +3111,7 @@ resend:
 	if (!valid_hex(nonce1)) {
 		applog(LOG_INFO, "Failed to get valid nonce1 in initiate_stratum");
 		free(sessionid);
+		free(nonce1);
 		goto out;
 	}
 	n2size = json_integer_value(json_array_get(res_val, 2));
@@ -3039,10 +3128,12 @@ resend:
 	}
 
 	cg_wlock(&pool->data_lock);
-	free(pool->nonce1);
-	free(pool->sessionid);
+	tmp = pool->sessionid;
 	pool->sessionid = sessionid;
+	free(tmp);
+	tmp = pool->nonce1;
 	pool->nonce1 = nonce1;
+	free(tmp);
 	pool->n1_len = strlen(nonce1) / 2;
 	free(pool->nonce1bin);
 	pool->nonce1bin = cgcalloc(pool->n1_len, 1);
@@ -3059,7 +3150,7 @@ out:
 		if (!pool->stratum_url)
 			pool->stratum_url = pool->sockaddr_url;
 		pool->stratum_active = true;
-		pool->next_diff = 0;
+		pool->next_diff = pool->diff_after = 0;
 		pool->sdiff = 1;
 		if (opt_protocol) {
 			applog(LOG_DEBUG, "Pool %d confirmed mining.subscribe with extranonce1 %s extran2size %d",
