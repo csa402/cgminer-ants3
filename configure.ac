@@ -4,7 +4,7 @@ m4_define([v_maj], [4])
 m4_define([v_min], [10])
 m4_define([v_mic], [0])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
-m4_define([v_ver], [v_maj.v_min.v_mic-w])
+m4_define([v_ver], [v_maj.v_min.v_mic-wareck])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
 m4_define([lt_cur], v_mic)
 m4_define([lt_age], v_min)
@@ -621,6 +621,7 @@ AC_ARG_ENABLE([libcurl],
 	[libcurl=$enableval]
 	)
 
+static_curl="no"
 if test "x$libcurl" != xno; then
 	if test "x$have_win32" != xtrue; then
 		PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.25.0], [AC_DEFINE([CURL_HAS_KEEPALIVE], [1], [Defined if version of curl supports keepalive.])],
@@ -628,12 +629,14 @@ if test "x$libcurl" != xno; then
 	else
 		PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.25.0], ,[AC_MSG_ERROR([Missing required libcurl dev >= 7.25.0])])
 		AC_DEFINE([CURL_HAS_KEEPALIVE], [1])
+		static_curl="yes"
 	fi
 	AC_DEFINE([HAVE_LIBCURL], [1], [Defined to 1 if libcurl support built in])
 else
 	LIBCURL_LIBS=""
 fi
 AC_SUBST(LIBCURL_LIBS)
+AM_CONDITIONAL([STATIC_CURL], [test x$static_curl = xyes])
 
 libsystemd="no"
 
