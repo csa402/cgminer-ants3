@@ -1,2 +1,13 @@
 Cgminer modded for openwrt compilation
 Based on Canaan-Creative github
+
+If building on Ubuntu:
+sudo apt-get install build-essential autoconf automake libtool pkg-config \
+     libcurl4-openssl-dev libudev-dev libusb-1.0-0-dev \
+     libncurses5-dev
+
+./autogen.sh
+./configure --enable-ants3
+make
+gcc api-example.c -Icompat/jansson-2.9/src -Icompat/libusb-1.0/libusb -o cgminer-api
+
