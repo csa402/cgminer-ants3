@@ -1,6 +1,6 @@
 /*
  * Copyright 2011-2015 Andrew Smith
- * Copyright 2011-2015 Con Kolivas
+ * Copyright 2011-2015,2018 Con Kolivas
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -28,7 +28,7 @@
 
 #if defined(USE_BFLSC) || defined(USE_AVALON) || defined(USE_AVALON2) || defined(USE_AVALON4) || \
   defined(USE_HASHFAST) || defined(USE_BITFURY) || defined(USE_BITFURY16) || defined(USE_BLOCKERUPTER) || defined(USE_KLONDIKE) || \
-	defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRILLBIT) || \
+	defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRAGONMINT_T1) || defined(USE_DRILLBIT) || \
 	defined(USE_MINION) || defined(USE_COINTERRA) || defined(USE_BITMINE_A1) || \
 	defined(USE_ANT_S1) || defined(USE_ANT_S2) || defined(USE_ANT_S3) || defined(USE_SP10) || \
 	defined(USE_SP30) || defined(USE_ICARUS) || defined(USE_HASHRATIO) || defined(USE_AVALON_MINER) || \
@@ -186,10 +186,13 @@ static const char *DEVICECODE = ""
 			"BFU "
 #endif
 #ifdef USE_BLOCKERUPTER
-                        "BET "
+			"BET "
 #endif
 #ifdef USE_DRILLBIT
 			"DRB "
+#endif
+#ifdef USE_DRAGONMINT_T1
+			"DT1 "
 #endif
 #ifdef USE_HASHFAST
 			"HFA "
@@ -266,6 +269,7 @@ static const char *OSINFO =
 #define _BYE		"BYE"
 #define _RESTART	"RESTART"
 #define _MINESTATS	"STATS"
+#define _MINEDEBUG	"DBGSTATS"
 #define _CHECK		"CHECK"
 #define _MINECOIN	"COIN"
 #define _DEBUGSET	"DEBUG"
@@ -309,6 +313,7 @@ static const char ISJSON = '{';
 #define JSON_RESTART	JSON1 _RESTART JSON1
 #define JSON_CLOSE	JSON3
 #define JSON_MINESTATS	JSON1 _MINESTATS JSON2
+#define JSON_MINEDEBUG	JSON1 _MINEDEBUG JSON2
 #define JSON_CHECK	JSON1 _CHECK JSON2
 #define JSON_MINECOIN	JSON1 _MINECOIN JSON2
 #define JSON_DEBUGSET	JSON1 _DEBUGSET JSON2
@@ -444,7 +449,9 @@ static const char *JSON_PARAMETER = "parameter";
 #define MSG_LOCKDIS 124
 #define MSG_LCD 125
 
-#define MSG_DEPRECATED 126
+#define MSG_MINEDEBUG 126
+
+#define MSG_DEPRECATED 127
 
 enum code_severity {
 	SEVERITY_ERR,
@@ -1401,6 +1408,8 @@ foundit:
 }
 #endif
 
+#define LIMSIZ (TMPBUFSIZ - 1)
+
 // All replies (except BYE and RESTART) start with a message
 //  thus for JSON, message() inserts JSON_START at the front
 //  and send_result() adds JSON_END at the end
@@ -1444,28 +1453,28 @@ static void message(struct io_data *io_data, int messageid, int paramid, char *p
 				case PARAM_ASC:
 				case PARAM_PID:
 				case PARAM_INT:
-					sprintf(buf, codes[i].description, paramid);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid);
 					break;
 				case PARAM_POOL:
-					sprintf(buf, codes[i].description, paramid, pools[paramid]->rpc_url);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid, pools[paramid]->rpc_url);
 					break;
 #ifdef HAVE_AN_FPGA
 				case PARAM_PGAMAX:
 					pga = numpgas();
-					sprintf(buf, codes[i].description, paramid, pga - 1);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid, pga - 1);
 					break;
 #endif
 #ifdef HAVE_AN_ASIC
 				case PARAM_ASCMAX:
 					asc = numascs();
-					sprintf(buf, codes[i].description, paramid, asc - 1);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid, asc - 1);
 					break;
 #endif
 				case PARAM_PMAX:
-					sprintf(buf, codes[i].description, total_pools);
+					snprintf(buf, LIMSIZ, codes[i].description, total_pools);
 					break;
 				case PARAM_POOLMAX:
-					sprintf(buf, codes[i].description, paramid, total_pools - 1);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid, total_pools - 1);
 					break;
 				case PARAM_DMAX:
 #ifdef HAVE_AN_ASIC
@@ -1475,7 +1484,7 @@ static void message(struct io_data *io_data, int messageid, int paramid, char *p
 					pga = numpgas();
 #endif
 
-					sprintf(buf, codes[i].description
+					snprintf(buf, LIMSIZ, codes[i].description
 #ifdef HAVE_AN_ASIC
 						, asc
 #endif
@@ -1485,19 +1494,19 @@ static void message(struct io_data *io_data, int messageid, int paramid, char *p
 						);
 					break;
 				case PARAM_CMD:
-					sprintf(buf, codes[i].description, JSON_COMMAND);
+					snprintf(buf, LIMSIZ, codes[i].description, JSON_COMMAND);
 					break;
 				case PARAM_STR:
-					sprintf(buf, codes[i].description, param2);
+					snprintf(buf, LIMSIZ, codes[i].description, param2);
 					break;
 				case PARAM_BOTH:
-					sprintf(buf, codes[i].description, paramid, param2);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid, param2);
 					break;
 				case PARAM_BOOL:
-					sprintf(buf, codes[i].description, paramid ? TRUESTR : FALSESTR);
+					snprintf(buf, LIMSIZ, codes[i].description, paramid ? TRUESTR : FALSESTR);
 					break;
 				case PARAM_SET:
-					sprintf(buf, codes[i].description, param2, paramid);
+					snprintf(buf, LIMSIZ, codes[i].description, param2, paramid);
 					break;
 				case PARAM_NONE:
 				default:
@@ -1508,7 +1517,10 @@ static void message(struct io_data *io_data, int messageid, int paramid, char *p
 			root = api_add_time(root, "When", &when, false);
 			root = api_add_int(root, "Code", &messageid, false);
 			root = api_add_escape(root, "Msg", buf, false);
-			root = api_add_escape(root, "Description", opt_api_description, false);
+			/* Do not give out description for random probes to
+			 * addresses with inappropriately open API ports. */
+			if (messageid != MSG_INVCMD)
+				root = api_add_escape(root, "Description", opt_api_description, false);
 
 			root = print_data(io_data, root, isjson, false);
 			if (isjson)
@@ -2566,6 +2578,7 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 			root = api_add_const(root, "Stratum URL", BLANK, false);
 			root = api_add_diff(root, "Stratum Difficulty", &(sdiff0), false);
 		}
+		root = api_add_bool(root, "Has Vmask", &(pool->vmask), false);
 		root = api_add_bool(root, "Has GBT", &(pool->has_gbt), false);
 		root = api_add_uint64(root, "Best Share", &(pool->best_diff), true);
 		double rejp = (pool->diff_accepted + pool->diff_rejected + pool->diff_stale) ?
@@ -3338,6 +3351,45 @@ static void minerstats(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 		io_close(io_data);
 }
 
+static void minerdebug(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __maybe_unused char *param, bool isjson, __maybe_unused char group)
+{
+	struct cgpu_info *cgpu;
+	bool io_open = false;
+	struct api_data *extra;
+	char id[20];
+	int i, j;
+
+	message(io_data, MSG_MINEDEBUG, 0, NULL, isjson);
+
+	if (isjson)
+		io_open = io_add(io_data, COMSTR JSON_MINESTATS);
+
+	i = 0;
+	for (j = 0; j < total_devices; j++) {
+		cgpu = get_devices(j);
+
+		if (cgpu && cgpu->drv) {
+			if (cgpu->drv->get_api_debug)
+				extra = cgpu->drv->get_api_debug(cgpu);
+			else
+				extra = NULL;
+
+			sprintf(id, "%s%d", cgpu->drv->name, cgpu->device_id);
+			i = itemstats(io_data, i, id, &(cgpu->cgminer_stats), NULL, extra, cgpu, isjson);
+		}
+	}
+
+	for (j = 0; j < total_pools; j++) {
+		struct pool *pool = pools[j];
+
+		sprintf(id, "POOL%d", j);
+		i = itemstats(io_data, i, id, &(pool->cgminer_stats), &(pool->cgminer_pool_stats), NULL, NULL, isjson);
+	}
+
+	if (isjson && io_open)
+		io_close(io_data);
+}
+
 static void minerestats(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __maybe_unused char *param, bool isjson, __maybe_unused char group)
 {
 	struct cgpu_info *cgpu;
@@ -4046,6 +4098,7 @@ struct CMDS {
 	{ "devdetails",		devdetails,	false,	true },
 	{ "restart",		dorestart,	true,	false },
 	{ "stats",		minerstats,	false,	true },
+	{ "dbgstats",		minerdebug,	false,	true },
 	{ "estats",		minerestats,	false,	true },
 	{ "check",		checkcommand,	false,	false },
 	{ "failover-only",	failoveronly,	true,	false },
@@ -4972,7 +5025,9 @@ void api(int api_thr_id)
 					connectaddr, addrok ? "Accepted" : "Ignored");
 
 		if (addrok) {
-			n = recv(c, &buf[0], TMPBUFSIZ-1, 0);
+			/* Accept only half the TMPBUFSIZ to account for space
+			 * potentially used by escaping chars. */
+			n = recv(c, &buf[0], TMPBUFSIZ / 2 - 1, 0);
 			if (SOCKETFAIL(n))
 				buf[0] = '\0';
 			else

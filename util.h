@@ -121,6 +121,7 @@ int ser_number(unsigned char *s, int32_t val);
 unsigned char *ser_string(char *s, int *slen);
 int thr_info_create(struct thr_info *thr, pthread_attr_t *attr, void *(*start) (void *), void *arg);
 void thr_info_cancel(struct thr_info *thr);
+void cgcond_time(struct timespec *abstime);
 void cgtime(struct timeval *tv);
 void subtime(struct timeval *a, struct timeval *b);
 void addtime(struct timeval *a, struct timeval *b);
@@ -139,8 +140,8 @@ void cgsleep_ms(int ms);
 void cgsleep_us(int64_t us);
 void cgtimer_time(cgtimer_t *ts_start);
 #define cgsleep_prepare_r(ts_start) cgtimer_time(ts_start)
-void cgsleep_ms_r(cgtimer_t *ts_start, int ms);
-void cgsleep_us_r(cgtimer_t *ts_start, int64_t us);
+int cgsleep_ms_r(cgtimer_t *ts_start, int ms);
+int64_t cgsleep_us_r(cgtimer_t *ts_start, int64_t us);
 int cgtimer_to_ms(cgtimer_t *cgt);
 void cgtimer_sub(cgtimer_t *a, cgtimer_t *b, cgtimer_t *res);
 double us_tdiff(struct timeval *end, struct timeval *start);
