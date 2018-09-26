@@ -38,6 +38,10 @@
 #define AVA7_DEFAULT_VOLTAGE_OFFSET	0
 #define AVA7_DEFAULT_VOLTAGE_OFFSET_MAX	1
 
+#define AVA7_DEFAULT_FACTORY_INFO_0_MIN	-15
+#define AVA7_DEFAULT_FACTORY_INFO_0	0
+#define AVA7_DEFAULT_FACTORY_INFO_0_MAX	15
+
 #define AVA7_DEFAULT_FREQUENCY_MIN	24 /* NOTE: It cann't support 0 */
 #define AVA7_DEFAULT_FREQUENCY_0	600
 #define AVA7_DEFAULT_FREQUENCY_1	636
@@ -50,11 +54,12 @@
 
 #define AVA7_DEFAULT_MODULARS	7	/* Only support 6 modules maximum with one AUC */
 #define AVA7_DEFAULT_MINER_CNT	4
-#define AVA7_DEFAULT_ASIC_MAX	22
+#define AVA7_DEFAULT_ASIC_MAX	26
 #define AVA7_DEFAULT_PLL_CNT	6
 #define AVA7_DEFAULT_PMU_CNT	2
 
 #define AVA7_DEFAULT_POLLING_DELAY	20 /* ms */
+#define AVA7_DEFAULT_NTIME_OFFSET	40
 
 #define AVA7_DEFAULT_SMARTSPEED_OFF 0
 #define AVA7_DEFAULT_SMARTSPEED_MODE1 1
@@ -118,6 +123,8 @@
 #define AVA7_P_SET_PMU	0x24
 #define AVA7_P_SET_PLL	0x25
 #define AVA7_P_SET_SS	0x26
+#define AVA7_P_PAIRS	0x27
+#define AVA7_P_SET_FAC	0x28
 
 /* Have to send with I2C address */
 #define AVA7_P_POLLING	0x30
@@ -137,6 +144,7 @@
 #define AVA7_P_STATUS_LOG	0x4a
 #define AVA7_P_STATUS_ASIC	0x4b
 #define AVA7_P_STATUS_PVT	0x4c
+#define AVA7_P_STATUS_FAC	0x4d
 
 #define AVA7_MODULE_BROADCAST	0
 /* End of avalon7 protocol package type */
@@ -156,11 +164,17 @@
 #define AVA7_DEFAULT_DELTA_T	0
 #define AVA7_DEFAULT_DELTA_FREQ	100
 
-#define AVA7_VIN_ADC_RATIO	(3.3 / 1024.0 * 27.15 / 7.15 * 100.0)
+#define AVA7_DEFAULT_FACTORY_INFO_CNT	1
+
+#define AVA7_MM711_VIN_ADC_RATIO	(3.3 / 1024.0 * 27.15 / 7.15 * 1000.0 * 100.0)
+#define AVA7_MM721_VIN_ADC_RATIO	(3.3 / 1024.0 * 27.15 / 7.15 * 1000.0 * 100.0)
+#define AVA7_MM741_VIN_ADC_RATIO	(3.3 / 1024.0 * 27.15 / 7.15 * 1000.0 * 100.0)
+#define AVA7_MM761_VIN_ADC_RATIO	(3.3 / 1024.0 * 26.0 / 6.0 * 1000.0 * 100.0)
 
 #define AVA7_MM711_VOUT_ADC_RATIO	(3.3 / 1024.0 * 125.0 / 43.0 * 10000.0 * 100.0)
 #define AVA7_MM721_VOUT_ADC_RATIO	(3.3 / 1024.0 * 125.0 / 43.0 * 10000.0 * 100.0)
 #define AVA7_MM741_VOUT_ADC_RATIO	(3.3 / 1024.0 * 63.0 / 20.0 * 10000.0 * 100.0)
+#define AVA7_MM761_VOUT_ADC_RATIO	(3.3 / 1024.0 * 26.0 / 6.0 * 10000.0 * 100.0)
 
 struct avalon7_pkg {
 	uint8_t head[2];
@@ -247,6 +261,8 @@ struct avalon7_info {
 	/* spd_pass(4B), spd_fail(4B), sum_failed(4B), sum_num(4B), sum_xor(4B), PLL(6 * 4B) */
 	uint32_t get_asic[AVA7_DEFAULT_MODULARS][AVA7_DEFAULT_MINER_CNT][AVA7_DEFAULT_ASIC_MAX][11];
 
+	int8_t factory_info[AVA7_DEFAULT_FACTORY_INFO_CNT];
+
 	uint64_t local_works[AVA7_DEFAULT_MODULARS];
 	uint64_t local_works_i[AVA7_DEFAULT_MODULARS][AVA7_DEFAULT_MINER_CNT];
 	uint64_t hw_works[AVA7_DEFAULT_MODULARS];
@@ -261,9 +277,17 @@ struct avalon7_info {
 	char pmu_version[AVA7_DEFAULT_MODULARS][AVA7_DEFAULT_PMU_CNT][5];
 	uint64_t diff1[AVA7_DEFAULT_MODULARS];
 
+	uint16_t vin_adc_ratio[AVA7_DEFAULT_MODULARS];
 	uint16_t vout_adc_ratio[AVA7_DEFAULT_MODULARS];
 
 	bool conn_overloaded;
+
+	uint64_t mm_got_pairs[AVA7_DEFAULT_MODULARS];
+	uint64_t mm_got_invalid_pairs[AVA7_DEFAULT_MODULARS];
+	uint64_t gen_pairs[AVA7_DEFAULT_MODULARS];
+
+	/* SSP */
+	pthread_t ssp_thr;
 };
 
 struct avalon7_iic_info {
@@ -279,6 +303,7 @@ struct avalon7_dev_description {
 	int mod_type;
 	uint8_t miner_count; /* it should not greater than AVA7_DEFAULT_MINER_CNT */
 	uint8_t asic_count; /* asic count each miner, it should not great than AVA7_DEFAULT_ASIC_MAX */
+	uint16_t vin_adc_ratio;
 	uint16_t vout_adc_ratio;
 	uint32_t set_voltage;
 };
@@ -308,5 +333,6 @@ extern uint32_t opt_avalon7_th_ms;
 extern uint32_t opt_avalon7_th_timeout;
 extern uint32_t opt_avalon7_nonce_mask;
 extern bool opt_avalon7_asic_debug;
+extern bool opt_avalon7_ssplus_enable;
 #endif /* USE_AVALON7 */
 #endif	/* _AVALON7_H_ */
