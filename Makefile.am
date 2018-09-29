@@ -29,7 +29,7 @@ cgminer_CPPFLAGS = $(PTHREAD_FLAGS) -fno-strict-aliasing $(JANSSON_CPPFLAGS) $(U
 bin_PROGRAMS	= cgminer
 
 cgminer_LDFLAGS	= $(PTHREAD_FLAGS)
-cgminer_LDADD	= $(DLOPEN_FLAGS) @LIBCURL_LIBS@ @JANSSON_LIBS@ @PTHREAD_LIBS@ \
+cgminer_LDADD	= $(DLOPEN_FLAGS) @LIBCURL_LIBS@ @JANSSON_LIBS@ @LIBZ_LIBS@ @PTHREAD_LIBS@ \
 		  @NCURSES_LIBS@ @PDCURSES_LIBS@ @WS2_LIBS@ \
 		  @LIBUSB_LIBS@ @MM_LIBS@ @RT_LIBS@ @LIBSYSTEMD_LIBS@ \
 		  @MATH_LIBS@ lib/libgnu.a ccan/libccan.a
@@ -112,6 +112,11 @@ cgminer_SOURCES += bf16-uartdevice.c bf16-uartdevice.h
 cgminer_SOURCES += driver-bitfury16.c driver-bitfury16.h
 endif
 
+if HAS_BITMAIN_SOC
+cgminer_SOURCES += driver-btm-soc.c driver-btm-soc.h
+cgminer_SOURCES += bitmain-board-test.c bitmain-board-test.h
+endif
+
 if HAS_BITMINE_A1
 cgminer_SOURCES += driver-SPI-bitmine-A1.c
 cgminer_SOURCES += spi-context.c spi-context.h
@@ -120,6 +125,14 @@ cgminer_SOURCES += A1-board-selector.h
 cgminer_SOURCES += A1-board-selector-CCD.c A1-board-selector-CCR.c
 cgminer_SOURCES += A1-trimpot-mcp4x.h A1-trimpot-mcp4x.c
 cgminer_SOURCES += i2c-context.c i2c-context.h
+endif
+
+if HAS_DRAGONMINT_T1
+cgminer_SOURCES += driver-SPI-dragonmint-t1.c
+cgminer_SOURCES += dragonmint_t1.c
+cgminer_SOURCES += dm_temp_ctrl.c
+cgminer_SOURCES += dm_fan_ctrl.c
+cgminer_SOURCES += dm_compat.c
 endif
 
 if HAS_DRILLBIT
@@ -167,10 +180,6 @@ endif
 
 if NEED_I2C_CONTEXT
 cgminer_SOURCES += i2c-context.c
-endif
-
-if SUPPORT_SSP
-cgminer_SOURCES += libssplus.c
 endif
 
 if HAS_AVALON_MINER

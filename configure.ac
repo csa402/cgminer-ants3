@@ -1,8 +1,8 @@
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [4])
-m4_define([v_min], [10])
-m4_define([v_mic], [0])
+m4_define([v_min], [11])
+m4_define([v_mic], [1])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_ver], [v_maj.v_min.v_mic])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
@@ -64,6 +64,7 @@ AC_FUNC_ALLOCA
 
 have_win32=false
 PTHREAD_FLAGS="-lpthread"
+LIBZ_LIBS="-lz"
 DLOPEN_FLAGS="-ldl"
 WS2_LIBS=""
 MM_LIBS=""
@@ -282,6 +283,7 @@ if test "x$bitfury" = xyes; then
 fi
 AM_CONDITIONAL([HAS_BITFURY], [test x$bitfury = xyes])
 
+
 bitfury16="no"
 
 AC_ARG_ENABLE([bitfury16],
@@ -294,6 +296,54 @@ if test "x$bitfury16" = xyes; then
 	standalone="yes"
 fi
 AM_CONDITIONAL([HAS_BITFURY16], [test x$bitfury16 = xyes])
+
+bitmain_soc="no"
+bitmain_R4="no"
+bitmain_S9="no"
+bitmain_T9="no"
+bitmain_T9P="no"
+
+AC_ARG_ENABLE([bitmain_soc],
+	[AC_HELP_STRING([--enable-bitmain_soc],[Compile support for Bitmain ASICs STANDALONE(default disabled)])],
+	[bitmain_soc=$enableval]
+	)
+AC_ARG_ENABLE([bitmain_R4],
+	[AC_HELP_STRING([--enable-bitmain_R4],[Compile support for Bitmain R4])],
+	[bitmain_R4=$enableval]
+	)
+AC_ARG_ENABLE([bitmain_S9],
+	[AC_HELP_STRING([--enable-bitmain_S9],[Compile support for Bitmain S9])],
+	[bitmain_S9=$enableval]
+	)
+AC_ARG_ENABLE([bitmain_T9],
+	[AC_HELP_STRING([--enable-bitmain_T9],[Compile support for Bitmain T9])],
+	[bitmain_T9=$enableval]
+	)
+AC_ARG_ENABLE([bitmain_T9P],
+	[AC_HELP_STRING([--enable-bitmain_T9P],[Compile support for Bitmain T9+])],
+	[bitmain_T9P=$enableval]
+	)
+if test "x$bitmain_soc" = xyes; then
+	AC_DEFINE([USE_BITMAIN_SOC], [1], [Defined to 1 if Bitmain ASICs support is wanted])
+    if test "x$bitmain_R4" = xyes; then
+        AC_DEFINE([R4], [1], [Defined to 1 for R4])
+    fi
+    if test "x$bitmain_S9" = xyes; then
+        AC_DEFINE([S9_63], [1], [Defined to 1 for S9])
+    fi
+    if test "x$bitmain_T9" = xyes; then
+        AC_DEFINE([S9_PLUS], [1], [Defined to 1 for T9])
+    fi
+    if test "x$bitmain_T9P" = xyes; then
+        AC_DEFINE([T9_18], [1], [Defined to 1 for T9+])
+    fi
+    if test "x$bitmain_R4$bitmain_S9$bitmain_T9$bitmain_T9P" = xnononono; then
+        AC_DEFINE([S9_63], [1], [Defined to 1 for default])
+    fi
+	drivercount=x$drivercount
+	standalone="yes"
+fi
+AM_CONDITIONAL([HAS_BITMAIN_SOC], [test x$bitmain_soc = xyes])
 
 bitmine_A1="no"
 
@@ -333,6 +383,21 @@ if test "x$cointerra" = xyes; then
 	drivercount=x$drivercount
 fi
 AM_CONDITIONAL([HAS_COINTERRA], [test x$cointerra = xyes])
+
+
+dragonmint_t1="no"
+
+AC_ARG_ENABLE([dragonmint_t1],
+	[AC_HELP_STRING([--enable-dragonmint_t1],[Compile support for Dragonmint T1 ASICs STANDALONE(default disabled)])],
+	[dragonmint_t1=$enableval]
+	)
+if test "x$dragonmint_t1" = xyes; then
+	AC_DEFINE([USE_DRAGONMINT_T1], [1], [Defined to 1 if Dragonmint T1 support is wanted])
+	AC_DEFINE([USE_VMASK], [1], [Defined to 1 if version mask rolling is wanted])
+	drivercount=x$drivercount
+	standalone="yes"
+fi
+AM_CONDITIONAL([HAS_DRAGONMINT_T1], [test x$dragonmint_t1 = xyes])
 
 
 drillbit="no"
@@ -526,13 +591,13 @@ fi
 
 AM_CONDITIONAL([NEED_FPGAUTILS], [test x$modminer != xno])
 AM_CONDITIONAL([WANT_USBUTILS], [test x$want_usbutils != xfalse])
+AM_CONDITIONAL([NEED_LIBZ], [test x$bitmain_soc != xno])
 AM_CONDITIONAL([WANT_LIBBITFURY], [test x$want_libbitfury != xfalse])
 AM_CONDITIONAL([HAVE_CURSES], [test x$curses = xyes])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([HAVE_x86_64], [test x$have_x86_64 = xtrue])
 AM_CONDITIONAL([WANT_CRC16], [test x$want_crc16 != xfalse])
 AM_CONDITIONAL([NEED_I2C_CONTEXT], [test x$avalon4$avalon7 != xnono])
-AM_CONDITIONAL([SUPPORT_SSP], [test x$avalon7 != xno])
 
 if test "x$want_usbutils" != xfalse; then
 	dlibusb="no"
@@ -600,6 +665,8 @@ else
 fi
 
 AM_CONDITIONAL([WANT_STATIC_JANSSON], [test x$djansson = xno])
+
+AC_CHECK_HEADERS([uthash.h])
 
 PKG_PROG_PKG_CONFIG()
 
@@ -703,6 +770,7 @@ fi
 AC_DEFINE_UNQUOTED([CGMINER_PREFIX], ["$prefix/bin"], [Path to cgminer install])
 
 AC_SUBST(JANSSON_LIBS)
+AC_SUBST(LIBZ_LIBS)
 AC_SUBST(PTHREAD_FLAGS)
 AC_SUBST(DLOPEN_FLAGS)
 AC_SUBST(PTHREAD_LIBS)
@@ -749,6 +817,12 @@ echo "  curses.TUI...........: $cursesmsg"
 
 
 echo
+if test "x$dragonmint_t1" = xyes; then
+	echo "  DragonMint.T1.Halong.: Enabled"
+else
+        echo "  DragonMint.T1.Halong.: Disabled"
+fi
+
 if test "x$ants1" = xyes; then
 	echo "  Antminer.S1.Bitmain..: Enabled"
 else
@@ -833,6 +907,13 @@ else
 	echo "  BitFury16.ASICs......: Disabled"
 fi
 
+if test "x$bitmain_soc" = xyes; then
+	echo "  Bitmain.ASICs......: Enabled"
+else
+	echo "  Bitmain.ASICs......: Disabled"
+fi
+
+
 if test "x$blockerupter" = xyes; then
 	echo "  BlockErupter.ASICs...: Enabled"
 else
@@ -858,11 +939,16 @@ else
 	echo "  Spond-sp30.ASICs.....: Disabled"
 fi
 
-
 if test "x$bitmine_A1" = xyes; then
 	echo "  Bitmine-A1.ASICs.....: Enabled"
 else
 	echo "  Bitmine-A1.ASICs.....: Disabled"
+fi
+
+if test "x$dragonmint_t1" = xyes; then
+	echo "  Dragonmint.T1.ASICs..: Enabled"
+else
+	echo "  Dragonmint.T1.ASICs..: Disabled"
 fi
 
 if test "x$drillbit" = xyes; then
@@ -908,7 +994,7 @@ else
 fi
 
 #Add any new device to this, along with a no on the end of the test
-if test "x$avalon$avalon2$avalon4$avalon7$avalon_miner$bab$bflsc$bitforce$bitfury$bitfury16$blockerupter$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30" = xnononononononononononononononononononononononononono; then
+if test "x$avalon$avalon2$avalon4$avalon7$avalon_miner$bab$bflsc$bitforce$bitfury$bitfury16$bitmain_soc$blockerupter$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30$dragonmint_t1" = xnononononononononononononononononononononononononononono; then
 	echo
 	AC_MSG_ERROR([No mining devices configured in])
 	echo
@@ -927,7 +1013,7 @@ echo "Compilation............: make (or gmake)"
 echo "  CPPFLAGS.............: $CPPFLAGS"
 echo "  CFLAGS...............: $CFLAGS"
 echo "  LDFLAGS..............: $LDFLAGS $PTHREAD_FLAGS"
-echo "  LDADD................: $DLOPEN_FLAGS $LIBCURL_LIBS $LIBSYSTEMD_LIBS $JANSSON_LIBS $PTHREAD_LIBS $NCURSES_LIBS $PDCURSES_LIBS $WS2_LIBS $MATH_LIBS $LIBUSB_LIBS $RT_LIBS"
+echo "  LDADD................: $DLOPEN_FLAGS $LIBCURL_LIBS $LIBSYSTEMD_LIBS $JANSSON_LIBS $LIBZ_LIBS $PTHREAD_LIBS $NCURSES_LIBS $PDCURSES_LIBS $WS2_LIBS $MATH_LIBS $LIBUSB_LIBS $RT_LIBS"
 echo
 echo "Installation...........: make install (as root if needed, with 'su' or 'sudo')"
 echo "  prefix...............: $prefix"

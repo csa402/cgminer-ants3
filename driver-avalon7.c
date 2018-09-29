@@ -14,7 +14,6 @@
 #include "driver-avalon7.h"
 #include "crc.h"
 #include "sha2.h"
-#include "libssplus.h"
 #include "hexdump.c"
 
 #define get_fan_pwm(v)	(AVA7_PWM_MAX - (v) * AVA7_PWM_MAX / 100)
@@ -56,7 +55,6 @@ uint32_t opt_avalon7_th_ms = AVA7_DEFAULT_TH_MS;
 uint32_t opt_avalon7_th_timeout = AVA7_DEFAULT_TH_TIMEOUT;
 uint32_t opt_avalon7_nonce_mask = AVA7_DEFAULT_NONCE_MASK;
 bool opt_avalon7_asic_debug = true;
-bool opt_avalon7_ssplus_enable = false;
 
 uint32_t cpm_table[] =
 {
@@ -184,7 +182,6 @@ struct avalon7_dev_description avalon7_dev_table[] = {
 		711,
 		4,
 		18,
-		AVA7_MM711_VIN_ADC_RATIO,
 		AVA7_MM711_VOUT_ADC_RATIO,
 		4981
 	},
@@ -193,7 +190,6 @@ struct avalon7_dev_description avalon7_dev_table[] = {
 		721,
 		4,
 		18,
-		AVA7_MM721_VIN_ADC_RATIO,
 		AVA7_MM721_VOUT_ADC_RATIO,
 		4981
 	},
@@ -202,17 +198,7 @@ struct avalon7_dev_description avalon7_dev_table[] = {
 		741,
 		4,
 		22,
-		AVA7_MM741_VIN_ADC_RATIO,
 		AVA7_MM741_VOUT_ADC_RATIO,
-		4825,
-	},
-	{
-		"761",
-		761,
-		4,
-		26,
-		AVA7_MM761_VIN_ADC_RATIO,
-		AVA7_MM761_VOUT_ADC_RATIO,
 		4825,
 	}
 };
@@ -246,9 +232,9 @@ static uint32_t decode_voltage(struct avalon7_info *info, int modular_id, uint32
 	return (volt * info->vout_adc_ratio[modular_id] / info->asic_count[modular_id] / 100);
 }
 
-static uint16_t decode_vin(struct avalon7_info *info, int modular_id, uint16_t volt)
+static uint16_t decode_vin(uint16_t volt)
 {
-	return (volt * info->vin_adc_ratio[modular_id] / 1000);
+	return (volt * AVA7_VIN_ADC_RATIO);
 }
 
 static double decode_pvt_temp(uint16_t pvt_code)
@@ -605,10 +591,10 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 		if (ntime > info->max_ntime)
 			info->max_ntime = ntime;
 
-		applog(LOG_NOTICE, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d, A:%d, C:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
+		applog(LOG_DEBUG, "%s-%d-%d: Found! P:%d - N2:%08x N:%08x NR:%d/%d [M:%d - MW: (%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64")]",
 		       avalon7->drv->name, avalon7->device_id, modular_id,
 		       pool_no, nonce2, nonce, ntime, info->max_ntime,
-		       miner, chip_id, nonce & 0x7f,
+		       miner,
 		       info->chip_matching_work[modular_id][miner][0],
 		       info->chip_matching_work[modular_id][miner][1],
 		       info->chip_matching_work[modular_id][miner][2],
@@ -681,9 +667,6 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 		memcpy(&tmp, ar->data + 24, 4);
 		info->error_crc[modular_id][ar->idx] += be32toh(tmp);
 
-		memcpy(&tmp, ar->data + 28, 4);
-		info->mm_got_pairs[modular_id] += be32toh(tmp) >> 16;
-		info->mm_got_invalid_pairs[modular_id] += be32toh(tmp) & 0xffff;
 		break;
 	case AVA7_P_STATUS_PMU:
 		/* TODO: decode ntc led from PMU */
@@ -696,7 +679,7 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 
 		for (i = 0; i < info->miner_count[modular_id]; i++) {
 			memcpy(&vin, ar->data + 8 + i * 2, 2);
-			info->get_vin[modular_id][i] = decode_vin(info, modular_id, be16toh(vin));
+			info->get_vin[modular_id][i] = decode_vin(be16toh(vin));
 		}
 		break;
 	case AVA7_P_STATUS_VOLT:
@@ -771,10 +754,6 @@ static int decode_pkg(struct cgpu_info *avalon7, struct avalon7_ret *ar, int mod
 			tmp = *(ar->data + 25);
 			info->get_asic[modular_id][x_miner_id][x_asic_id][10] = tmp;
 		}
-		break;
-	case AVA7_P_STATUS_FAC:
-		applog(LOG_DEBUG, "%s-%d-%d: AVA7_P_STATUS_FAC", avalon7->drv->name, avalon7->device_id, modular_id);
-		info->factory_info[0] = ar->data[0];
 		break;
 	default:
 		applog(LOG_DEBUG, "%s-%d-%d: Unknown response %x", avalon7->drv->name, avalon7->device_id, modular_id, ar->type);
@@ -1355,93 +1334,6 @@ static inline void avalon7_detect(bool __maybe_unused hotplug)
 		avalon7_iic_detect();
 }
 
-#ifdef PAIR_CHECK
-static void copy_pool_stratum(struct pool *pool_stratum, struct pool *pool);
-#endif
-static void *avalon7_ssp_fill_pairs(void *userdata)
-{
-	char threadname[16];
-
-	struct cgpu_info *avalon7 = userdata;
-	struct avalon7_info *info = avalon7->device_data;
-	struct avalon7_pkg send_pkg;
-	ssp_pair pair;
-	uint8_t pair_counts;
-	int i, err, fill_timeout;;
-	uint32_t tmp;
-#ifdef PAIR_CHECK
-	struct pool pool_mirror, *pool;
-	uint32_t tail[2];
-	uint64_t pass, fail;
-#endif
-
-	snprintf(threadname, sizeof(threadname), "%d/Av7ssp", avalon7->device_id);
-	RenameThread(threadname);
-
-	/* timeout in ms = count of points * 4 * ntime_offset / max_ghs(10T) * 1000 */
-	fill_timeout = 80 * 4 * AVA7_DEFAULT_NTIME_OFFSET * 1.0 / 10000 * 1000;
-
-	cgsleep_ms(3000);
-	while (likely(!avalon7->shutdown)) {
-#ifdef PAIR_CHECK
-		if (ssp_sorter_get_pair(pair)) {
-			pool = current_pool();
-			copy_pool_stratum(&pool_mirror, pool);
-			tail[0] = gen_merkle_root(&pool_mirror, pair[0]);
-			tail[1] = gen_merkle_root(&pool_mirror, pair[1]);
-			if (tail[0] != tail[1]) {
-				fail++;
-				applog(LOG_NOTICE, "avalon7_ssp_fill_pairs: tail mismatch (%08x:%08x -> %08x:%08x)",
-						tail[0],
-						tail[1],
-						pair[0],
-						pair[1]);
-				applog(LOG_NOTICE, "avalon7_ssp_fill_pairs: tail mismatch detail %08x-%08x, F: %"PRIu64", P: %"PRIu64", Errate: %0.2f", tail[0], tail[1], fail, pass, fail * 1.0 / (pass + fail));
-			} else {
-				applog(LOG_NOTICE, "avalon7_ssp_fill_pairs: tail pass (%08x -> %08x:%08x)",
-						tail[0],
-						pair[0],
-						pair[1]);
-				pass++;
-			}
-		}
-		cgsleep_ms(opt_avalon7_polling_delay);
-#else
-		for (i = 1; i < AVA7_DEFAULT_MODULARS; i++) {
-			if (!info->enable[i])
-				continue;
-
-			pair_counts = 0;
-			memset(send_pkg.data, 0, AVA7_P_DATA_LEN);
-			while (pair_counts < 1) {
-				if (!ssp_sorter_get_pair(pair)) {
-					applog(LOG_DEBUG, "%s-%d: Waiting for pairs from ssp_sorter_get_pair",
-							avalon7->drv->name, avalon7->device_id);
-					continue;
-				}
-				tmp = be32toh(pair[0]);
-				memcpy(send_pkg.data + pair_counts * 8, &tmp, 4);
-				tmp = be32toh(pair[1]);
-				applog(LOG_DEBUG, "send pair %08x-%08x", pair[0], pair[1]);
-				memcpy(send_pkg.data + pair_counts * 8 + 4, &tmp, 4);
-				pair_counts++;
-				info->gen_pairs[i]++;
-			}
-
-			avalon7_init_pkg(&send_pkg, AVA7_P_PAIRS, 1, 1);
-			err = avalon7_iic_xfer_pkg(avalon7, i, &send_pkg, NULL);
-			if (err != AVA7_SEND_OK) {
-				applog(LOG_NOTICE, "%s-%d: send pair failed %d",
-						avalon7->drv->name, avalon7->device_id, err);
-			}
-		}
-		cgsleep_ms(fill_timeout);
-#endif
-	}
-
-	return NULL;
-}
-
 static bool avalon7_prepare(struct thr_info *thr)
 {
 	struct cgpu_info *avalon7 = thr->cgpu;
@@ -1463,13 +1355,6 @@ static bool avalon7_prepare(struct thr_info *thr)
 	cglock_init(&info->pool0.data_lock);
 	cglock_init(&info->pool1.data_lock);
 	cglock_init(&info->pool2.data_lock);
-
-	if (opt_avalon7_ssplus_enable) {
-		if (pthread_create(&(info->ssp_thr), NULL, avalon7_ssp_fill_pairs, (void *)avalon7)) {
-			applog(LOG_ERR, "%s-%d: create ssp thread failed", avalon7->drv->name, avalon7->device_id);
-			return false;
-		}
-	}
 
 	return true;
 }
@@ -1548,7 +1433,6 @@ static void detect_modules(struct cgpu_info *avalon7)
 				info->mod_type[i] = avalon7_dev_table[dev_index].mod_type;
 				info->miner_count[i] = avalon7_dev_table[dev_index].miner_count;
 				info->asic_count[i] = avalon7_dev_table[dev_index].asic_count;
-				info->vin_adc_ratio[i] = avalon7_dev_table[dev_index].vin_adc_ratio;
 				info->vout_adc_ratio[i] = avalon7_dev_table[dev_index].vout_adc_ratio;
 				break;
 			}
@@ -1567,7 +1451,7 @@ static void detect_modules(struct cgpu_info *avalon7)
 		info->total_asics[i] = tmp;
 		info->temp_overheat[i] = AVA7_DEFAULT_TEMP_OVERHEAT;
 		info->temp_target[i] = opt_avalon7_temp_target;
-		info->fan_pct[i] = opt_avalon7_fan_min;
+		info->fan_pct[i] = opt_avalon7_fan_min + (opt_avalon7_fan_min + opt_avalon7_fan_max) / 3;
 		for (j = 0; j < info->miner_count[i]; j++) {
 			if (opt_avalon7_voltage == AVA7_INVALID_VOLTAGE)
 				info->set_voltage[i][j] = avalon7_dev_table[dev_index].set_voltage;
@@ -1604,9 +1488,6 @@ static void detect_modules(struct cgpu_info *avalon7)
 		info->power_good[i] = 0;
 		memset(info->pmu_version[i], 0, sizeof(char) * 5 * AVA7_DEFAULT_PMU_CNT);
 		info->diff1[i] = 0;
-		info->mm_got_pairs[i] = 0;
-		info->mm_got_invalid_pairs[i] = 0;
-		info->gen_pairs[i] = 0;
 
 		applog(LOG_NOTICE, "%s-%d: New module detected! ID[%d-%x]",
 		       avalon7->drv->name, avalon7->device_id, i, info->mm_dna[i][AVA7_MM_DNA_LEN - 1]);
@@ -1762,22 +1643,17 @@ static void avalon7_init_setting(struct cgpu_info *avalon7, int addr)
 
 	memset(send_pkg.data, 0, AVA7_P_DATA_LEN);
 
+	/* TODO:ss/ssp mode */
+
 	tmp = be32toh(opt_avalon7_freq_sel);
 	memcpy(send_pkg.data + 4, &tmp, 4);
 
-	/*
-	 * set flags:
-	 * 0: ss switch
-	 * 1: nonce check
-	 * 2: asic debug
-	 * 3: ssp switch
-	 */
+	/* adjust flag [0-5]: reserved, 6: nonce check, 7: autof*/
 	tmp = 1;
 	if (!opt_avalon7_smart_speed)
 	      tmp = 0;
 	tmp |= (1 << 1); /* Enable nonce check */
 	tmp |= (opt_avalon7_asic_debug << 2);
-	tmp |= (opt_avalon7_ssplus_enable << 3);
 	send_pkg.data[8] = tmp & 0xff;
 	send_pkg.data[9] = opt_avalon7_nonce_mask & 0xff;
 
@@ -1837,11 +1713,11 @@ static void avalon7_set_freq(struct cgpu_info *avalon7, int addr, int miner_id, 
 	for (i = 1; i < AVA7_DEFAULT_PLL_CNT; i++)
 		f = f > freq[i] ? f : freq[i];
 
-	tmp = ((AVA7_ASIC_TIMEOUT_CONST / f) * AVA7_DEFAULT_NTIME_OFFSET / 4) * (opt_avalon7_ssplus_enable ? 2 : 1);
+	tmp = ((AVA7_ASIC_TIMEOUT_CONST / f) * 40 / 4);
 	tmp = be32toh(tmp);
 	memcpy(send_pkg.data + AVA7_DEFAULT_PLL_CNT * 4, &tmp, 4);
 
-	tmp = AVA7_ASIC_TIMEOUT_CONST / f * 98 / 100 * (opt_avalon7_ssplus_enable ? 2 : 1);
+	tmp = AVA7_ASIC_TIMEOUT_CONST / f * 98 / 100;
 	tmp = be32toh(tmp);
 	memcpy(send_pkg.data + AVA7_DEFAULT_PLL_CNT * 4 + 4, &tmp, 4);
 	applog(LOG_DEBUG, "%s-%d-%d: avalon7 set freq miner %x-%x",
@@ -1851,24 +1727,6 @@ static void avalon7_set_freq(struct cgpu_info *avalon7, int addr, int miner_id, 
 	/* Package the data */
 	avalon7_init_pkg(&send_pkg, AVA7_P_SET_PLL, miner_id + 1, info->miner_count[addr]);
 
-	if (addr == AVA7_MODULE_BROADCAST)
-		avalon7_send_bc_pkgs(avalon7, &send_pkg);
-	else
-		avalon7_iic_xfer_pkg(avalon7, addr, &send_pkg, NULL);
-}
-
-static void avalon7_set_factory_info(struct cgpu_info *avalon7, int addr, uint8_t value[])
-{
-	struct avalon7_pkg send_pkg;
-	uint8_t i;
-
-	memset(send_pkg.data, 0, AVA7_P_DATA_LEN);
-
-	for (i = 0; i < AVA7_DEFAULT_FACTORY_INFO_CNT; i++)
-	      send_pkg.data[i] = value[i];
-
-	/* Package the data */
-	avalon7_init_pkg(&send_pkg, AVA7_P_SET_FAC, 1, 1);
 	if (addr == AVA7_MODULE_BROADCAST)
 		avalon7_send_bc_pkgs(avalon7, &send_pkg);
 	else
@@ -1949,31 +1807,20 @@ static void avalon7_sswork_update(struct cgpu_info *avalon7)
 	struct pool *pool;
 	int coinbase_len_posthash, coinbase_len_prehash;
 
-	cgtime(&info->last_stratum);
 	/*
 	 * NOTE: We need mark work_restart to private information,
 	 * So that it cann't reset by hash_driver_work
 	 */
 	if (thr->work_restart)
 		info->work_restart = thr->work_restart;
-	applog(LOG_NOTICE, "%s-%d: New stratum: restart: %d, update: %d, clean: %d",
+	applog(LOG_DEBUG, "%s-%d: New stratum: restart: %d, update: %d",
 	       avalon7->drv->name, avalon7->device_id,
-	       thr->work_restart, thr->work_update, thr->clean_jobs);
+	       thr->work_restart, thr->work_update);
 
 	/* Step 1: MM protocol check */
 	pool = current_pool();
 	if (!pool->has_stratum)
 		quit(1, "%s-%d: MM has to use stratum pools", avalon7->drv->name, avalon7->device_id);
-
-	if (opt_avalon7_ssplus_enable) {
-		if (thr->clean_jobs) {
-			applog(LOG_DEBUG, "%s-%d: Update the stratum", avalon7->drv->name, avalon7->device_id);
-			thr->clean_jobs = false;
-		} else {
-			applog(LOG_DEBUG, "%s-%d: Ignore the stratum", avalon7->drv->name, avalon7->device_id);
-			return;
-		}
-	}
 
 	coinbase_len_prehash = pool->nonce2_offset - (pool->nonce2_offset % SHA256_BLOCK_SIZE);
 	coinbase_len_posthash = pool->coinbase_len - coinbase_len_prehash;
@@ -1996,6 +1843,7 @@ static void avalon7_sswork_update(struct cgpu_info *avalon7)
 
 	/* Step 2: Send out stratum pkgs */
 	cg_rlock(&pool->data_lock);
+	cgtime(&info->last_stratum);
 	info->pool_no = pool->pool_no;
 	copy_pool_stratum(&info->pool2, &info->pool1);
 	copy_pool_stratum(&info->pool1, &info->pool0);
@@ -2305,9 +2153,6 @@ static struct api_data *avalon7_api_stats(struct cgpu_info *avalon7)
 		strcat(statbuf, buf);
 
 		if (opt_debug) {
-			sprintf(buf, " FAC0[%d]", info->factory_info[0]);
-			strcat(statbuf, buf);
-
 			for (j = 0; j < info->miner_count[i]; j++) {
 				sprintf(buf, " SF%d[", j);
 				strcat(statbuf, buf);
@@ -2376,11 +2221,6 @@ static struct api_data *avalon7_api_stats(struct cgpu_info *avalon7)
 			sprintf(buf, "%d ", info->error_crc[i][j]);
 			strcat(statbuf, buf);
 		}
-		statbuf[strlen(statbuf) - 1] = ']';
-
-		strcat(statbuf, " PAIRS[");
-		sprintf(buf, "%"PRIu64" %"PRIu64" %"PRIu64" ", info->mm_got_pairs[i], info->mm_got_invalid_pairs[i], info->gen_pairs[i]);
-		strcat(statbuf, buf);
 		statbuf[strlen(statbuf) - 1] = ']';
 
 		strcat(statbuf, " PVT_T[");
@@ -2561,30 +2401,6 @@ char *set_avalon7_device_freq(struct cgpu_info *avalon7, char *arg)
 	return NULL;
 }
 
-char *set_avalon7_factory_info(struct cgpu_info *avalon7, char *arg)
-{
-	struct avalon7_info *info = avalon7->device_data;
-	int val;
-
-	if (!(*arg))
-		return NULL;
-
-	sscanf(arg, "%d", &val);
-	if (!val)
-		val = AVA7_DEFAULT_FACTORY_INFO_0;
-
-	if (val < AVA7_DEFAULT_FACTORY_INFO_0_MIN || val > AVA7_DEFAULT_FACTORY_INFO_0_MAX)
-		return "Invalid value passed to set_avalon7_factory_info";
-
-	info->factory_info[0] = val;
-	avalon7_set_factory_info(avalon7, 0, (uint8_t *)info->factory_info);
-
-	applog(LOG_NOTICE, "%s-%d: Update factory info %d",
-		avalon7->drv->name, avalon7->device_id, val);
-
-	return NULL;
-}
-
 static char *avalon7_set_device(struct cgpu_info *avalon7, char *option, char *setting, char *replybuf)
 {
 	unsigned int val;
@@ -2687,15 +2503,6 @@ static char *avalon7_set_device(struct cgpu_info *avalon7, char *option, char *s
 		}
 
 		return set_avalon7_device_voltage(avalon7, setting);
-	}
-
-	if (strcasecmp(option, "factory") == 0) {
-		if (!setting || !*setting) {
-			sprintf(replybuf, "missing factory info");
-			return replybuf;
-		}
-
-		return set_avalon7_factory_info(avalon7, setting);
 	}
 
 	if (strcasecmp(option, "reboot") == 0) {

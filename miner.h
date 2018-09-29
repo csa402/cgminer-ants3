@@ -8,11 +8,18 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <jansson.h>
+#include <inttypes.h>
 
 #include <sched.h>
 
 #include "elist.h"
-#include "uthash.h"
+
+#if HAVE_UTHASH_H
+# include <uthash.h>
+#else
+# include "uthash.h"
+#endif
+
 #include "logging.h"
 #include "util.h"
 #include <sys/types.h>
@@ -243,22 +250,24 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(avalon4) \
 	DRIVER_ADD_COMMAND(avalon7) \
 	DRIVER_ADD_COMMAND(avalonm) \
+	DRIVER_ADD_COMMAND(bab) \
 	DRIVER_ADD_COMMAND(bflsc) \
 	DRIVER_ADD_COMMAND(bitfury) \
 	DRIVER_ADD_COMMAND(bitfury16) \
+	DRIVER_ADD_COMMAND(bitmineA1) \
 	DRIVER_ADD_COMMAND(blockerupter) \
 	DRIVER_ADD_COMMAND(cointerra) \
+	DRIVER_ADD_COMMAND(dragonmintT1) \
 	DRIVER_ADD_COMMAND(hashfast) \
+	DRIVER_ADD_COMMAND(drillbit) \
 	DRIVER_ADD_COMMAND(hashratio) \
 	DRIVER_ADD_COMMAND(icarus) \
 	DRIVER_ADD_COMMAND(klondike) \
 	DRIVER_ADD_COMMAND(knc) \
-	DRIVER_ADD_COMMAND(bitmineA1) \
-	DRIVER_ADD_COMMAND(drillbit) \
-	DRIVER_ADD_COMMAND(bab) \
 	DRIVER_ADD_COMMAND(minion) \
 	DRIVER_ADD_COMMAND(sp10) \
-	DRIVER_ADD_COMMAND(sp30)
+	DRIVER_ADD_COMMAND(sp30) \
+	DRIVER_ADD_COMMAND(bitmain_soc)
 
 #define DRIVER_PARSE_COMMANDS(DRIVER_ADD_COMMAND) \
 	FPGA_PARSE_COMMANDS(DRIVER_ADD_COMMAND) \
@@ -321,6 +330,7 @@ struct device_drv {
 	void (*get_statline_before)(char *, size_t, struct cgpu_info *);
 	void (*get_statline)(char *, size_t, struct cgpu_info *);
 	struct api_data *(*get_api_stats)(struct cgpu_info *);
+	struct api_data *(*get_api_debug)(struct cgpu_info *);
 	bool (*get_stats)(struct cgpu_info *);
 	void (*identify_device)(struct cgpu_info *); // e.g. to flash a led
 	char *(*set_device)(struct cgpu_info *, char *option, char *setting, char *replybuf);
@@ -500,6 +510,13 @@ struct cgpu_info {
 	bool new_work;
 
 	double temp;
+#ifdef USE_DRAGONMINT_T1
+	double temp_max;
+	double temp_min;
+	int fan_duty;
+	int chainNum;
+	double mhs_av;
+#endif
 	int cutofftemp;
 
 	int64_t diff1;
@@ -571,7 +588,6 @@ struct thr_info {
 
 	bool	work_restart;
 	bool	work_update;
-	bool	clean_jobs;
 };
 
 struct string_elist {
@@ -982,13 +998,11 @@ struct pool;
 #define API_MCAST_ADDR "224.0.0.75"
 
 extern bool opt_work_update;
-extern bool opt_clean_jobs;
 extern bool opt_protocol;
 extern bool have_longpoll;
 extern char *opt_kernel_path;
 extern char *opt_socks_proxy;
 extern int opt_suggest_diff;
-extern int opt_force_clean_jobs;
 extern char *cgminer_path;
 extern bool opt_lowmem;
 extern bool opt_autofan;
@@ -1035,6 +1049,16 @@ extern char *opt_bab_options;
 #endif
 #ifdef USE_BITMINE_A1
 extern char *opt_bitmine_a1_options;
+#endif
+#ifdef USE_DRAGONMINT_T1
+extern char *opt_dragonmint_t1_options;
+extern int opt_T1Pll[];
+extern int opt_T1Vol[];
+extern int opt_T1VID[];
+extern bool opt_T1auto;
+extern bool opt_T1_efficient;
+extern bool opt_T1_performance;
+extern int opt_T1_target;
 #endif
 #ifdef USE_ANT_S1
 extern char *opt_bitmain_options;
@@ -1132,10 +1156,18 @@ extern void set_target(unsigned char *dest_target, double diff);
 #if defined (USE_AVALON2) || defined (USE_AVALON4) || defined (USE_AVALON7) || defined (USE_AVALON_MINER) || defined (USE_HASHRATIO)
 bool submit_nonce2_nonce(struct thr_info *thr, struct pool *pool, struct pool *real_pool,
 			 uint32_t nonce2, uint32_t nonce, uint32_t ntime);
-uint32_t gen_merkle_root(struct pool *pool, uint64_t nonce2);
+#endif
+#ifdef USE_BITMAIN_SOC
+void get_work_by_nonce2(struct thr_info *thr,
+						struct work **work,
+						struct pool *pool,
+						struct pool *real_pool,
+						uint64_t nonce2,
+						uint32_t version);
 #endif
 extern int restart_wait(struct thr_info *thr, unsigned int mstime);
 
+extern void raise_cgminer(void);
 extern void kill_work(void);
 
 extern void reinit_device(struct cgpu_info *cgpu);
@@ -1192,6 +1224,22 @@ extern uint64_t best_diff;
 extern struct timeval block_timeval;
 extern char *workpadding;
 
+#ifdef USE_BITMAIN_SOC
+extern char displayed_hash_rate[16];
+#define NONCE_BUFF 4096
+extern char nonce_num10_string[NONCE_BUFF];
+extern char nonce_num30_string[NONCE_BUFF];
+extern char nonce_num60_string[NONCE_BUFF];
+extern char g_miner_version[256];
+extern char g_miner_compiletime[256];
+extern char g_miner_type[256];
+extern double new_total_mhashes_done;
+extern double new_total_secs;
+extern time_t total_tv_start_sys;
+extern time_t total_tv_end_sys;
+extern void writeInitLogFile(char *logstr);
+#endif
+
 struct curl_ent {
 	CURL *curl;
 	struct list_head node;
@@ -1234,6 +1282,12 @@ struct pool {
 	double diff_accepted;
 	double diff_rejected;
 	double diff_stale;
+
+	/* Vmask data */
+	bool vmask; /* Supports vmask */
+	uint32_t vmask_001[16];
+	char vmask_002[16][9];
+	int vmask_003[4];
 
 	bool submit_fail;
 	bool idle;
@@ -1359,6 +1413,11 @@ struct pool {
 	uint32_t current_height;
 
 	struct timeval tv_lastwork;
+#ifdef USE_BITMAIN_SOC
+    bool support_vil;
+    int version_num;
+    int version[4];
+#endif
 };
 
 #define GETWORK_MODE_TESTPOOL 'T'
@@ -1372,8 +1431,13 @@ struct pool {
 struct work {
 	unsigned char	data[128];
 	unsigned char	midstate[32];
+	unsigned char   midstate1[32];
+	unsigned char   midstate2[32];
+	unsigned char   midstate3[32];
 	unsigned char	target[32];
 	unsigned char	hash[32];
+
+	uint16_t        micro_job_id;
 
 	/* This is the diff the device is currently aiming for and must be
 	 * the minimum of work_difficulty & drv->max_diff */
@@ -1431,6 +1495,9 @@ struct work {
 	struct timeval	tv_work_start;
 	struct timeval	tv_work_found;
 	char		getwork_mode;
+#ifdef USE_BITMAIN_SOC
+    int version;
+#endif
 };
 
 #ifdef USE_MODMINER
@@ -1523,7 +1590,7 @@ extern void pool_died(struct pool *pool);
 extern struct thread_q *tq_new(void);
 extern void tq_free(struct thread_q *tq);
 extern bool tq_push(struct thread_q *tq, void *data);
-extern void *tq_pop(struct thread_q *tq, const struct timespec *abstime);
+extern void *tq_pop(struct thread_q *tq);
 extern void tq_freeze(struct thread_q *tq);
 extern void tq_thaw(struct thread_q *tq);
 extern bool successful_connect;
@@ -1607,6 +1674,8 @@ extern struct api_data *api_add_hs(struct api_data *root, char *name, double *da
 extern struct api_data *api_add_diff(struct api_data *root, char *name, double *data, bool copy_data);
 extern struct api_data *api_add_percent(struct api_data *root, char *name, double *data, bool copy_data);
 extern struct api_data *api_add_avg(struct api_data *root, char *name, float *data, bool copy_data);
+
+#define ROOT_ADD_API(FUNC, NAME, VAR, BOOL) root = api_add_##FUNC(root, (NAME), &(VAR), (BOOL))
 
 extern void dupalloc(struct cgpu_info *cgpu, int timelimit);
 extern void dupcounters(struct cgpu_info *cgpu, uint64_t *checked, uint64_t *dups);
