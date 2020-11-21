@@ -2524,9 +2524,6 @@ static char *opt_verusage_and_exit(const char *extra)
 #ifdef USE_DRILLBIT
                 "drillbit "
 #endif
-#ifdef USE_DRAGONMINT_T1
-		"Dragon T1 "
-#endif
 #ifdef USE_HASHFAST
 		"hashfast "
 #endif

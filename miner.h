@@ -249,6 +249,7 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(avalon2) \
 	DRIVER_ADD_COMMAND(avalon4) \
 	DRIVER_ADD_COMMAND(avalon7) \
+	DRIVER_ADD_COMMAND(avalon8) \
 	DRIVER_ADD_COMMAND(avalonm) \
 	DRIVER_ADD_COMMAND(bab) \
 	DRIVER_ADD_COMMAND(bflsc) \
