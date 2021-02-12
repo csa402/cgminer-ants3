@@ -1811,6 +1811,9 @@ static enum send_ret __stratum_send(struct pool *pool, char *s, ssize_t len)
 	SOCKETTYPE sock = pool->sock;
 	ssize_t ssent = 0;
 
+	if (opt_protocol)
+		applog(LOG_DEBUG, "SEND: %s", s);
+
 	strcat(s, "\n");
 	len++;
 
@@ -1851,9 +1854,6 @@ retry:
 bool stratum_send(struct pool *pool, char *s, ssize_t len)
 {
 	enum send_ret ret = SEND_INACTIVE;
-
-	if (opt_protocol)
-		applog(LOG_DEBUG, "SEND: %s", s);
 
 	mutex_lock(&pool->stratum_lock);
 	if (pool->stratum_active)
@@ -2735,11 +2735,10 @@ bool parse_method(struct pool *pool, char *s)
 		goto out_decref;
 	}
 
-	if(!strncasecmp(buf, "mining.set_extranonce", 21)) {
- 		ret = parse_extranonce(pool, params);
- 		goto out_decref;
- 	}
-
+	if (!strncasecmp(buf, "mining.set_extranonce", 21)) {
+		ret = parse_extranonce(pool, params);
+		goto out_decref;
+	}
 
 	if (!strncasecmp(buf, "client.reconnect", 16)) {
 		ret = parse_reconnect(pool, params);
@@ -3498,6 +3497,8 @@ bool restart_stratum(struct pool *pool)
 	if (pool->stratum_active)
 		suspend_stratum(pool);
 	if (!initiate_stratum(pool))
+		goto out;
+	if (pool->extranonce_subscribe && !subscribe_extranonce(pool))
 		goto out;
 	if (!auth_stratum(pool))
 		goto out;
