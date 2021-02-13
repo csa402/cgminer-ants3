@@ -34,6 +34,10 @@
 
 #include "config.h"
 
+#ifdef WIN32
+#include <windows.h>
+#endif
+
 #include "compat.h"
 #include "miner.h"
 #include "driver-spondoolies-sp10-p.h"
@@ -139,7 +143,7 @@ static bool spondoolies_flush_queue(struct spond_adapter* a, bool flush_queue)
 
 static void spondoolies_detect(__maybe_unused bool hotplug)
 {
-	struct cgpu_info *cgpu = cgcalloc(1, sizeof(*cgpu));
+	struct cgpu_info *cgpu = calloc(1, sizeof(*cgpu));
 	struct device_drv *drv = &sp10_drv;
 	struct spond_adapter *a;
 
@@ -151,7 +155,9 @@ static void spondoolies_detect(__maybe_unused bool hotplug)
 	cgpu->drv = drv;
 	cgpu->deven = DEV_ENABLED;
 	cgpu->threads = 1;
-	cgpu->device_data = cgcalloc(sizeof(struct spond_adapter), 1);
+	cgpu->device_data = calloc(sizeof(struct spond_adapter), 1);
+	if (unlikely(!(cgpu->device_data)))
+		quit(1, "Failed to calloc cgpu_info data");
 	a = cgpu->device_data;
 	a->cgpu = (void *)cgpu;
 	a->adapter_state = ADAPTER_STATE_OPERATIONAL;

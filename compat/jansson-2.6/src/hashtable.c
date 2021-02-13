@@ -5,17 +5,8 @@
  * it under the terms of the MIT license. See LICENSE for details.
  */
 
-#if HAVE_CONFIG_H
-#include <config.h>
-#endif
-
 #include <stdlib.h>
 #include <string.h>
-
-#if HAVE_STDINT_H
-#include <stdint.h>
-#endif
-
 #include <jansson_config.h>   /* for JSON_INLINE */
 #include "jansson_private.h"  /* for container_of() */
 #include "hashtable.h"
@@ -24,13 +15,24 @@ typedef struct hashtable_list list_t;
 typedef struct hashtable_pair pair_t;
 typedef struct hashtable_bucket bucket_t;
 
-extern volatile uint32_t hashtable_seed;
-
-/* Implementation of the hash function */
-#include "lookup3.h"
-
 #define list_to_pair(list_)  container_of(list_, pair_t, list)
-#define hash_str(key)        ((size_t)hashlittle((key), strlen(key), hashtable_seed))
+
+/* From http://www.cse.yorku.ca/~oz/hash.html */
+static size_t hash_str(const void *ptr)
+{
+    const char *str = (const char *)ptr;
+
+    size_t hash = 5381;
+    size_t c;
+
+    while((c = (size_t)*str))
+    {
+        hash = ((hash << 5) + hash) + c;
+        str++;
+    }
+
+    return hash;
+}
 
 static JSON_INLINE void list_init(list_t *list)
 {
@@ -72,6 +74,19 @@ static void insert_to_bucket(hashtable_t *hashtable, bucket_t *bucket,
     }
 }
 
+static const size_t primes[] = {
+    5, 13, 23, 53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593,
+    49157, 98317, 196613, 393241, 786433, 1572869, 3145739, 6291469,
+    12582917, 25165843, 50331653, 100663319, 201326611, 402653189,
+    805306457, 1610612741
+};
+
+static JSON_INLINE size_t num_buckets(hashtable_t *hashtable)
+{
+    return primes[hashtable->num_buckets];
+}
+
+
 static pair_t *hashtable_find_pair(hashtable_t *hashtable, bucket_t *bucket,
                                    const char *key, size_t hash)
 {
@@ -105,7 +120,7 @@ static int hashtable_do_del(hashtable_t *hashtable,
     bucket_t *bucket;
     size_t index;
 
-    index = hash & hashmask(hashtable->order);
+    index = hash % num_buckets(hashtable);
     bucket = &hashtable->buckets[index];
 
     pair = hashtable_find_pair(hashtable, bucket, key, hash);
@@ -152,14 +167,14 @@ static int hashtable_do_rehash(hashtable_t *hashtable)
 
     jsonp_free(hashtable->buckets);
 
-    hashtable->order++;
-    new_size = hashsize(hashtable->order);
+    hashtable->num_buckets++;
+    new_size = num_buckets(hashtable);
 
     hashtable->buckets = jsonp_malloc(new_size * sizeof(bucket_t));
     if(!hashtable->buckets)
         return -1;
 
-    for(i = 0; i < hashsize(hashtable->order); i++)
+    for(i = 0; i < num_buckets(hashtable); i++)
     {
         hashtable->buckets[i].first = hashtable->buckets[i].last =
             &hashtable->list;
@@ -184,14 +199,14 @@ int hashtable_init(hashtable_t *hashtable)
     size_t i;
 
     hashtable->size = 0;
-    hashtable->order = 3;
-    hashtable->buckets = jsonp_malloc(hashsize(hashtable->order) * sizeof(bucket_t));
+    hashtable->num_buckets = 0;  /* index to primes[] */
+    hashtable->buckets = jsonp_malloc(num_buckets(hashtable) * sizeof(bucket_t));
     if(!hashtable->buckets)
         return -1;
 
     list_init(&hashtable->list);
 
-    for(i = 0; i < hashsize(hashtable->order); i++)
+    for(i = 0; i < num_buckets(hashtable); i++)
     {
         hashtable->buckets[i].first = hashtable->buckets[i].last =
             &hashtable->list;
@@ -215,12 +230,12 @@ int hashtable_set(hashtable_t *hashtable,
     size_t hash, index;
 
     /* rehash if the load ratio exceeds 1 */
-    if(hashtable->size >= hashsize(hashtable->order))
+    if(hashtable->size >= num_buckets(hashtable))
         if(hashtable_do_rehash(hashtable))
             return -1;
 
     hash = hash_str(key);
-    index = hash & hashmask(hashtable->order);
+    index = hash % num_buckets(hashtable);
     bucket = &hashtable->buckets[index];
     pair = hashtable_find_pair(hashtable, bucket, key, hash);
 
@@ -258,7 +273,7 @@ void *hashtable_get(hashtable_t *hashtable, const char *key)
     bucket_t *bucket;
 
     hash = hash_str(key);
-    bucket = &hashtable->buckets[hash & hashmask(hashtable->order)];
+    bucket = &hashtable->buckets[hash % num_buckets(hashtable)];
 
     pair = hashtable_find_pair(hashtable, bucket, key, hash);
     if(!pair)
@@ -279,7 +294,7 @@ void hashtable_clear(hashtable_t *hashtable)
 
     hashtable_do_clear(hashtable);
 
-    for(i = 0; i < hashsize(hashtable->order); i++)
+    for(i = 0; i < num_buckets(hashtable); i++)
     {
         hashtable->buckets[i].first = hashtable->buckets[i].last =
             &hashtable->list;
@@ -301,7 +316,7 @@ void *hashtable_iter_at(hashtable_t *hashtable, const char *key)
     bucket_t *bucket;
 
     hash = hash_str(key);
-    bucket = &hashtable->buckets[hash & hashmask(hashtable->order)];
+    bucket = &hashtable->buckets[hash % num_buckets(hashtable)];
 
     pair = hashtable_find_pair(hashtable, bucket, key, hash);
     if(!pair)

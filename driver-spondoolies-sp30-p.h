@@ -1,5 +1,4 @@
 /*
- * Copyright 2015 Con Kolivas <kernel@kolivas.org>
  * Copyright 2014 Zvi (Zvisha) Shteingart - Spondoolies-tech.com
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -14,8 +13,6 @@
 #ifndef ____MINERGATE_LIB30_H___
 #define ____MINERGATE_LIB30_H___
 
-#include "config.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
@@ -25,8 +22,6 @@
 #include <linux/spi/spidev.h>
 #include <netinet/in.h>
 
-#include "miner.h"
-#include "util.h"
 
 #define MINERGATE_PROTOCOL_VERSION_SP30 30
 #define MINERGATE_SOCKET_FILE_SP30 "/tmp/connection_pipe_sp30"

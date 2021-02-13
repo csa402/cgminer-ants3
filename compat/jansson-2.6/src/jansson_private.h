@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2009-2013 Petri Lehtinen <petri@digip.org>
- * Copyright (c) 2015 Con Kolivas <kernel@kolivas.org>
  *
  * Jansson is free software; you can redistribute it and/or modify
  * it under the terms of the MIT license. See LICENSE for details.
@@ -81,13 +80,9 @@ int jsonp_dtostr(char *buffer, size_t size, double value);
 
 /* Wrappers for custom memory functions */
 void* jsonp_malloc(size_t size);
-void _jsonp_free(void **ptr);
-#define jsonp_free(ptr) _jsonp_free((void *)&(ptr))
-
+void jsonp_free(void *ptr);
 char *jsonp_strndup(const char *str, size_t length);
 char *jsonp_strdup(const char *str);
-char *jsonp_strsteal(strbuffer_t *strbuff);
-char *jsonp_eolstrsteal(strbuffer_t *strbuff);
 
 /* Windows compatibility */
 #ifdef _WIN32

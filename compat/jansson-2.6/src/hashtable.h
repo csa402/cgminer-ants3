@@ -32,14 +32,13 @@ struct hashtable_bucket {
 typedef struct hashtable {
     size_t size;
     struct hashtable_bucket *buckets;
-    size_t order;  /* hashtable has pow(2, order) buckets */
+    size_t num_buckets;  /* index to primes[] */
     struct hashtable_list list;
 } hashtable_t;
 
 
 #define hashtable_key_to_iter(key_) \
     (&(container_of(key_, struct hashtable_pair, key)->list))
-
 
 /**
  * hashtable_init - Initialize a hashtable object

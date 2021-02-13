@@ -50,6 +50,12 @@
 
 #define FTDI_VALUE_DATA_AVA 8
 
+// Bitmain
+#define FTDI_VALUE_BAUD_BTM 0x001A
+#define FTDI_INDEX_BAUD_BTM 0x0000
+
+#define FTDI_VALUE_DATA_BTM 8
+
 // BitBurner
 #define BITBURNER_REQUEST ((uint8_t)0x42)
 #define BITBURNER_VALUE 0x4242
@@ -141,16 +147,13 @@ struct usb_intinfo {
 enum sub_ident {
 	IDENT_UNK = 0,
 	IDENT_AMU,
-	IDENT_ANT,
 	IDENT_ANU,
-	IDENT_AS3,
+	IDENT_BMM,
+	IDENT_BMS,
 	IDENT_AU3,
 	IDENT_AVA,
 	IDENT_AV2,
 	IDENT_AV4,
-	IDENT_AV7,
-	IDENT_AV8,
-	IDENT_AVM,
 	IDENT_BAJ,
 	IDENT_BAL,
 	IDENT_BAM,
@@ -161,7 +164,6 @@ enum sub_ident {
 	IDENT_BFL,
 	IDENT_BLT,
 	IDENT_BMA,
-	IDENT_BSC,
 	IDENT_BTB,
 	IDENT_BXF,
 	IDENT_BXM,
@@ -169,7 +171,6 @@ enum sub_ident {
 	IDENT_CMR2,
 	IDENT_CTA,
 	IDENT_DRB,
-	IDENT_GSC,
 	IDENT_HFA,
 	IDENT_HRO,
 	IDENT_ICA,
@@ -201,8 +202,6 @@ struct usb_find_devices {
  * baud rate, to avoid status bytes being interleaved in larger transfers. */
 #define LATENCY_UNUSED 0
 #define LATENCY_STD 32
-#define LATENCY_ANTS1 10
-#define LATENCY_ANTS3 10
 
 enum usb_types {
 	USB_TYPE_STD = 0,
@@ -306,7 +305,7 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_PROGRAMSTATUS, "ProgramStatus") \
 	USB_ADD_COMMAND(C_PROGRAMSTATUS2, "ProgramStatus2") \
 	USB_ADD_COMMAND(C_FINALPROGRAMSTATUS, "FinalProgramStatus") \
-	USB_ADD_COMMAND(C_SETCLOCK, "SetClock")			    \
+	USB_ADD_COMMAND(C_SETCLOCK, "SetClock") \
 	USB_ADD_COMMAND(C_SETPARITY, "SetParity") \
 	USB_ADD_COMMAND(C_REPLYSETCLOCK, "ReplySetClock") \
 	USB_ADD_COMMAND(C_SETVOLT, "SetVolt") \
@@ -378,7 +377,7 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_BF_IDENTIFY, "BFIdentify") \
 	USB_ADD_COMMAND(C_BF_DETECTCHIPS, "BFDetectChips") \
 	USB_ADD_COMMAND(C_BF_CONFIG, "BFConfig") \
-	USB_ADD_COMMAND(C_BF_GETTEMP, "BFGetTemp") \
+        USB_ADD_COMMAND(C_BF_GETTEMP, "BFGetTemp") \
 	USB_ADD_COMMAND(C_BF_AUTOTUNE, "BFAutoTune") \
 	USB_ADD_COMMAND(C_ATMEL_RESET, "AtmelReset") \
 	USB_ADD_COMMAND(C_ATMEL_OPEN, "AtmelOpen") \
@@ -388,12 +387,6 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_AVA2_WRITE, "Ava2Write") \
 	USB_ADD_COMMAND(C_AVA4_READ, "Ava4Read") \
 	USB_ADD_COMMAND(C_AVA4_WRITE, "Ava4Write") \
-	USB_ADD_COMMAND(C_AVA7_READ, "Ava7Read") \
-	USB_ADD_COMMAND(C_AVA7_WRITE, "Ava7Write") \
-	USB_ADD_COMMAND(C_AVA8_READ, "Ava8Read") \
-	USB_ADD_COMMAND(C_AVA8_WRITE, "Ava8Write") \
-	USB_ADD_COMMAND(C_AVAM_READ, "AvamRead") \
-	USB_ADD_COMMAND(C_AVAM_WRITE, "AvamWrite") \
         USB_ADD_COMMAND(C_BET_WRITE, "BlockErupterWrite") \
         USB_ADD_COMMAND(C_BET_READ, "BlockErupterRead") \
 	USB_ADD_COMMAND(C_BF1_REQINFO, "BF1RequestInfo") \
@@ -486,6 +479,16 @@ enum usb_cmds {
 
 struct device_drv;
 struct cgpu_info;
+
+#ifdef USE_BITMAIN
+struct cgpu_info *btm_alloc_cgpu(struct device_drv *drv, int threads);
+struct cgpu_info *btm_free_cgpu(struct cgpu_info *cgpu);
+void btm_uninit(struct cgpu_info *cgpu);
+bool btm_init(struct cgpu_info *cgpu, const char * devpath);
+void btm_detect(struct device_drv *drv, bool (*device_detect)(const char*));
+int btm_read(struct cgpu_info *cgpu, char *buf, size_t bufsize);
+int btm_write(struct cgpu_info *cgpu, char *buf, size_t bufsize);
+#endif
 
 bool async_usb_transfers(void);
 void cancel_usb_transfers(void);

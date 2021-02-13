@@ -2,7 +2,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 #include "jansson_private.h"
 #include "strbuffer.h"
 
@@ -70,7 +69,7 @@ int jsonp_strtod(strbuffer_t *strbuffer, double *out)
     value = strtod(strbuffer->value, &end);
     assert(end == strbuffer->value + strbuffer->length);
 
-    if((value == HUGE_VAL || value == -HUGE_VAL) && errno == ERANGE) {
+    if(errno == ERANGE && value != 0) {
         /* Overflow */
         return -1;
     }

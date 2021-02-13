@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2015 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2013-2014 Con Kolivas <kernel@kolivas.org>
  * Copyright 2012-2013 Xiangfu <xiangfu@openmobilefree.com>
  * Copyright 2012 Luke Dashjr
  * Copyright 2012 Andrew Smith
@@ -31,6 +31,7 @@
   #endif
 #else
   #include "compat.h"
+  #include <windows.h>
   #include <io.h>
 #endif
 
@@ -287,6 +288,13 @@ static void wait_avalon_ready(struct cgpu_info *avalon)
 	while (avalon_buffer_full(avalon)) {
 		cgsleep_ms(40);
 	}
+}
+
+#define AVALON_CTS    (1 << 4)
+
+static inline bool avalon_cts(char c)
+{
+	return (c & AVALON_CTS);
 }
 
 static int avalon_read(struct cgpu_info *avalon, char *buf, size_t bufsize, int ep)
@@ -1696,12 +1704,10 @@ struct device_drv avalon_drv = {
 	.name = "AVA",
 	.drv_detect = avalon_detect,
 	.thread_prepare = avalon_prepare,
-
 	.hash_work = hash_queued_work,
 	.queue_full = avalon_fill,
 	.scanwork = avalon_scanhash,
 	.flush_work = avalon_flush_work,
-
 	.get_api_stats = avalon_api_stats,
 	.get_statline_before = get_avalon_statline_before,
 	.set_device = avalon_set_device,
