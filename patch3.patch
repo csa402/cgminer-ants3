@@ -1,0 +1,85 @@
+From d9d6de68ba7ce8a9662bc143382575f7147fb08c Mon Sep 17 00:00:00 2001
+From: nicehashdev <info@nicehash.com>
+Date: Thu, 6 Aug 2015 11:57:09 +0200
+Subject: [PATCH] xn subscribe fixes
+
+- xn subscribe at one place now only
+---
+ cgminer.c |  2 +-
+ util.c    | 15 ++++++++++++---
+ util.h    |  2 +-
+ 3 files changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/cgminer.c b/cgminer.c
+index 91038f1f27..48540352ea 100644
+--- a/cgminer.c
++++ b/cgminer.c
+@@ -6456,7 +6456,7 @@ static bool pool_active(struct pool *pool, bool pinging)
+ 
+ 		if (!init) {
+ 			bool ret = initiate_stratum(pool) && auth_stratum(pool);
+-			extranonce_subscribe_stratum(pool);
++			//extranonce_subscribe_stratum(pool);
+ 			if (ret)
+ 				init_stratum_threads(pool);
+ 			else
+diff --git a/util.c b/util.c
+index 795c6bd622..a021b8db54 100644
+--- a/util.c
++++ b/util.c
+@@ -2858,7 +2858,7 @@ void suspend_stratum(struct pool *pool)
+ 	mutex_unlock(&pool->stratum_lock);
+ }
+ 
+-void extranonce_subscribe_stratum(struct pool *pool)
++/*void extranonce_subscribe_stratum(struct pool *pool)
+ {
+ 	char s[RBUFSIZE];
+ 	if(pool->extranonce_subscribe)
+@@ -2867,7 +2867,7 @@ void extranonce_subscribe_stratum(struct pool *pool)
+ 		applog(LOG_INFO, "Send extranonce.subscribe for stratum pool %d", pool->pool_no);
+                 stratum_send(pool, s, strlen(s));
+         }
+-}
++}*/
+ 
+ bool initiate_stratum(struct pool *pool)
+ {
+@@ -2901,6 +2901,15 @@ bool initiate_stratum(struct pool *pool)
+ 		goto out;
+ 	}
+ 
++	if (pool->extranonce_subscribe)
++	{
++		sprintf(s, "{\"id\": %d, \"method\": \"mining.extranonce.subscribe\", \"params\": []}", swork_id++);
++		if (__stratum_send(pool, s, strlen(s)) != SEND_OK) {
++			applog(LOG_DEBUG, "Failed to send s in initiate_stratum");
++			goto out;
++		}
++	}
++
+ 	if (!socket_full(pool, DEFAULT_SOCKWAIT)) {
+ 		applog(LOG_DEBUG, "Timed out waiting for response in initiate_stratum");
+ 		goto out;
+@@ -3019,7 +3028,7 @@ bool restart_stratum(struct pool *pool)
+ 		goto out;
+ 	if (!auth_stratum(pool))
+ 		goto out;
+-	extranonce_subscribe_stratum(pool);
++	//extranonce_subscribe_stratum(pool);
+ 	ret = true;
+ out:
+ 	if (!ret)
+diff --git a/util.h b/util.h
+index eefa0f57d4..ae01203f34 100644
+--- a/util.h
++++ b/util.h
+@@ -153,7 +153,7 @@ char *recv_line(struct pool *pool);
+ bool parse_method(struct pool *pool, char *s);
+ void check_extranonce_option(struct pool *pool, char * url);
+ bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port);
+-void extranonce_subscribe_stratum(struct pool *pool);
++//void extranonce_subscribe_stratum(struct pool *pool);
+ bool auth_stratum(struct pool *pool);
+ bool initiate_stratum(struct pool *pool);
+ bool restart_stratum(struct pool *pool);

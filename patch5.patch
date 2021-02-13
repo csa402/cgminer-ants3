@@ -1,0 +1,51 @@
+From eef7ce9d9504e1e525b40bb138403fd4ed89bc0f Mon Sep 17 00:00:00 2001
+From: elbandi <bandispam@gmail.com>
+Date: Fri, 21 Aug 2015 21:16:51 +0200
+Subject: [PATCH] Apply immediately the first set_difficulty
+
+This is a workaround for pool, who send the first difficulty after notify
+---
+ util.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/util.c b/util.c
+index 99a0f0f1cc..d5f3c64d84 100644
+--- a/util.c
++++ b/util.c
+@@ -2008,7 +2008,9 @@ static bool parse_notify(struct pool *pool, json_t *val)
+ 	snprintf(pool->nbit, 9, "%s", nbit);
+ 	snprintf(pool->ntime, 9, "%s", ntime);
+ 	pool->swork.clean = clean;
+-	pool->sdiff = pool->next_diff;
++	if (pool->next_diff > 0) {
++		pool->sdiff = pool->next_diff;
++	}
+ 	alloc_len = pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
+ 	pool->nonce2_offset = cb1_len + pool->n1_len;
+ 
+@@ -2118,8 +2120,13 @@ static bool parse_diff(struct pool *pool, json_t *val)
+ 		return false;
+ 
+ 	cg_wlock(&pool->data_lock);
+-	old_diff = pool->next_diff;
+-	pool->next_diff = diff;
++	if (pool->next_diff > 0) {
++		old_diff = pool->next_diff;
++		pool->next_diff = diff;
++	} else {
++		old_diff = pool->sdiff;
++		pool->next_diff = pool->sdiff = diff;
++	}
+ 	cg_wunlock(&pool->data_lock);
+ 
+ 	if (old_diff != diff) {
+@@ -2917,7 +2924,8 @@ bool initiate_stratum(struct pool *pool)
+ 		if (!pool->stratum_url)
+ 			pool->stratum_url = pool->sockaddr_url;
+ 		pool->stratum_active = true;
+-		pool->next_diff = pool->sdiff = 1;
++		pool->next_diff = 0;
++		pool->sdiff = 1;
+ 		if (opt_protocol) {
+ 			applog(LOG_DEBUG, "Pool %d confirmed mining.subscribe with extranonce1 %s extran2size %d",
+ 			       pool->pool_no, pool->nonce1, pool->n2size);

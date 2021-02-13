@@ -1,0 +1,44 @@
+From 468d06a8031abc25f25ce22595c3fd0d6f15d637 Mon Sep 17 00:00:00 2001
+From: nicehashdev <info@nicehash.com>
+Date: Thu, 6 Aug 2015 11:43:45 +0200
+Subject: [PATCH] xnsub fix
+
+- #xnsub detection regardless of letter case
+- ".nicehash.com" auto xnsub enable
+---
+ util.c | 22 +++++++++-------------
+ 1 file changed, 9 insertions(+), 13 deletions(-)
+
+diff --git a/util.c b/util.c
+index 52a3fe26f2..795c6bd622 100644
+--- a/util.c
++++ b/util.c
+@@ -1645,19 +1645,15 @@ double tdiff(struct timeval *end, struct timeval *start)
+ 
+ void check_extranonce_option(struct pool *pool, char * url)
+ {
+-	char extra_op[16],*extra_op_loc;
+-	extra_op_loc = strstr(url,"#");
+-        if(extra_op_loc && !pool->extranonce_subscribe)
+-        {
+-                strcpy(extra_op, extra_op_loc);
+-                *extra_op_loc = '\0';
+-		if(!strcmp(extra_op,"#xnsub"))
+-		{
+-			pool->extranonce_subscribe = true;
+-			applog(LOG_DEBUG, "Pool %d extranonce subscribe enabled.", pool->pool_no);
+-		}
+-        }
+-	return;
++	int i;
++
++	for (i = 0; url[i]; i++) url[i] = tolower(url[i]);
++
++	if (strstr(url, ".nicehash.com") || strstr(url, "#xnsub"))
++	{
++		pool->extranonce_subscribe = true;
++		applog(LOG_DEBUG, "Pool %d extranonce subscribe enabled.", pool->pool_no);
++	}
+ }
+ 
+ bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port)

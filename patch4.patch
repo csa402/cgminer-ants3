@@ -1,0 +1,54 @@
+From 0faff61937bf7927d9c4be2c5340e8b80a2bf6db Mon Sep 17 00:00:00 2001
+From: elbandi <bandispam@gmail.com>
+Date: Thu, 18 Jun 2015 13:36:20 +0200
+Subject: [PATCH] store the next difficulty
+
+---
+ miner.h | 1 +
+ util.c  | 7 ++++---
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/miner.h b/miner.h
+index 01ad1056c6..50c284c0a9 100644
+--- a/miner.h
++++ b/miner.h
+@@ -1338,6 +1338,7 @@ struct pool {
+ 	char bbversion[12];
+ 	char nbit[12];
+ 	char ntime[12];
++	double next_diff;
+ 	double sdiff;
+ 
+ 	struct timeval tv_lastwork;
+diff --git a/util.c b/util.c
+index e662e84c0a..99a0f0f1cc 100644
+--- a/util.c
++++ b/util.c
+@@ -2008,6 +2008,7 @@ static bool parse_notify(struct pool *pool, json_t *val)
+ 	snprintf(pool->nbit, 9, "%s", nbit);
+ 	snprintf(pool->ntime, 9, "%s", ntime);
+ 	pool->swork.clean = clean;
++	pool->sdiff = pool->next_diff;
+ 	alloc_len = pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
+ 	pool->nonce2_offset = cb1_len + pool->n1_len;
+ 
+@@ -2117,8 +2118,8 @@ static bool parse_diff(struct pool *pool, json_t *val)
+ 		return false;
+ 
+ 	cg_wlock(&pool->data_lock);
+-	old_diff = pool->sdiff;
+-	pool->sdiff = diff;
++	old_diff = pool->next_diff;
++	pool->next_diff = diff;
+ 	cg_wunlock(&pool->data_lock);
+ 
+ 	if (old_diff != diff) {
+@@ -2916,7 +2917,7 @@ bool initiate_stratum(struct pool *pool)
+ 		if (!pool->stratum_url)
+ 			pool->stratum_url = pool->sockaddr_url;
+ 		pool->stratum_active = true;
+-		pool->sdiff = 1;
++		pool->next_diff = pool->sdiff = 1;
+ 		if (opt_protocol) {
+ 			applog(LOG_DEBUG, "Pool %d confirmed mining.subscribe with extranonce1 %s extran2size %d",
+ 			       pool->pool_no, pool->nonce1, pool->n2size);
