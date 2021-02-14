@@ -1451,7 +1451,7 @@ out:
 		hashfast->device_data = NULL;
 		usb_nodev(hashfast);
 	}
-		
+
 	return ret;
 }
 

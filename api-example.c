@@ -8,7 +8,7 @@
  */
 
 /* Compile:
- *   gcc api-example.c -Icompat/jansson-2.6/src -Icompat/libusb-1.0/libusb -o cgminer-api
+ *   gcc api-example.c -Icompat/jansson-2.9/src -Icompat/libusb-1.0/libusb -o cgminer-api
  */
 
 #include "config.h"
@@ -23,9 +23,9 @@
 #include <sys/types.h>
 
 #include "compat.h"
-#include "miner.h"
+#include "util.h"
 
-#if defined(unix)
+#if defined(unix) || defined(__APPLE__)
 	#include <errno.h>
 	#include <sys/socket.h>
 	#include <netinet/in.h>
