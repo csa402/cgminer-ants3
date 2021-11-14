@@ -1346,18 +1346,18 @@ static void __maybe_unused timersubspec(struct timespec *a, const struct timespe
 	spec_nscheck(a);
 }
 #else /* USE_BITMAIN_SOC */
-static int timespec_to_ms(struct timespec *ts)
+static int __maybe_unused timespec_to_ms(struct timespec *ts)
 {
 	return ts->tv_sec * 1000 + ts->tv_nsec / 1000000;
 }
 
-static int64_t timespec_to_us(struct timespec *ts)
+static int64_t __maybe_unused timespec_to_us(struct timespec *ts)
 {
 	return (int64_t)ts->tv_sec * 1000000 + ts->tv_nsec / 1000;
 }
 
 /* Subtract b from a */
-static void timersubspec(struct timespec *a, const struct timespec *b)
+static void __maybe_unused timersubspec(struct timespec *a, const struct timespec *b)
 {
 	a->tv_sec -= b->tv_sec;
 	a->tv_nsec -= b->tv_nsec;
@@ -2506,40 +2506,40 @@ static bool parse_diff(struct pool *pool, json_t *val)
 
 	return true;
 }
-static bool parse_extranonce(struct pool *pool, json_t *val)
- {
-         int n2size;
- 	char *nonce1;
-         
-         nonce1 = json_array_string(val, 0);
-         if (!valid_hex(nonce1)) {
-                 applog(LOG_INFO, "Failed to get valid nonce1 in parse_extranonce");
-                 goto out;
-         }
-         n2size = json_integer_value(json_array_get(val, 1));
-         if (n2size < 2 || n2size > 16) {
-                 applog(LOG_INFO, "Failed to get valid n2size in parse_extranonce");
-                 free(nonce1);
-                 goto out;
-         }
- 
-         cg_wlock(&pool->data_lock);
-         pool->nonce1 = nonce1;
-         pool->n1_len = strlen(nonce1) / 2;
-         free(pool->nonce1bin);
-         pool->nonce1bin = calloc(pool->n1_len, 1);
-         if (unlikely(!pool->nonce1bin))
-                 quithere(1, "Failed to calloc pool->nonce1bin");
-         hex2bin(pool->nonce1bin, pool->nonce1, pool->n1_len);
-         pool->n2size = n2size;
- 	applog(LOG_NOTICE, "Pool %d confirmed mining.extranonce.subscribe with extranonce1 %s extran2size %d",
-                                pool->pool_no, pool->nonce1, pool->n2size);
-         cg_wunlock(&pool->data_lock);
- 	return true;
- out:
- 	return false;
- }
 
+static bool parse_extranonce(struct pool *pool, json_t *val)
+{
+	char s[RBUFSIZE], *nonce1;
+	int n2size;
+
+	nonce1 = json_array_string(val, 0);
+	if (!valid_hex(nonce1)) {
+		applog(LOG_INFO, "Failed to get valid nonce1 in parse_extranonce");
+		return false;
+	}
+	n2size = json_integer_value(json_array_get(val, 1));
+	if (!n2size) {
+		applog(LOG_INFO, "Failed to get valid n2size in parse_extranonce");
+		free(nonce1);
+		return false;
+	}
+
+	cg_wlock(&pool->data_lock);
+	free(pool->nonce1);
+	pool->nonce1 = nonce1;
+	pool->n1_len = strlen(nonce1) / 2;
+	free(pool->nonce1bin);
+	pool->nonce1bin = (unsigned char *)calloc(pool->n1_len, 1);
+	if (unlikely(!pool->nonce1bin))
+		quithere(1, "Failed to calloc pool->nonce1bin");
+	hex2bin(pool->nonce1bin, pool->nonce1, pool->n1_len);
+	pool->n2size = n2size;
+	cg_wunlock(&pool->data_lock);
+
+	applog(LOG_NOTICE, "Pool %d extranonce change requested", pool->pool_no);
+
+	return true;
+}
 
 static void __suspend_stratum(struct pool *pool)
 {
@@ -2735,11 +2735,10 @@ bool parse_method(struct pool *pool, char *s)
 		goto out_decref;
 	}
 
-	if(!strncasecmp(buf, "mining.set_extranonce", 21)) {
- 		ret = parse_extranonce(pool, params);
- 		goto out_decref;
- 	}
-
+	if (!strncasecmp(buf, "mining.set_extranonce", 21)) {
+		ret = parse_extranonce(pool, params);
+		goto out_decref;
+	}
 
 	if (!strncasecmp(buf, "client.reconnect", 16)) {
 		ret = parse_reconnect(pool, params);
@@ -3193,7 +3192,7 @@ static bool setup_stratum_socket(struct pool *pool)
 		 * we can connect to quickly. */
 		noblock_socket(sockd);
 		if (connect(sockd, p->ai_addr, p->ai_addrlen) == -1) {
-			struct timeval tv_timeout = {1, 0};
+			struct timeval tv_timeout = {2, 0};
 			int selret;
 			fd_set rw;
 
@@ -3314,18 +3313,6 @@ void suspend_stratum(struct pool *pool)
 	__suspend_stratum(pool);
 	mutex_unlock(&pool->stratum_lock);
 }
-
-/*void extranonce_subscribe_stratum(struct pool *pool)
- {
- 	char s[RBUFSIZE];
- 	if(pool->extranonce_subscribe)
-         {
-         	sprintf(s,"{\"id\": %d, \"method\": \"mining.extranonce.subscribe\", \"params\": []}", swork_id++);
- 		applog(LOG_INFO, "Send extranonce.subscribe for stratum pool %d", pool->pool_no);
-                 stratum_send(pool, s, strlen(s));
-         }
- }*/
- 
 
 bool initiate_stratum(struct pool *pool)
 {
@@ -3499,6 +3486,8 @@ bool restart_stratum(struct pool *pool)
 		suspend_stratum(pool);
 	if (!initiate_stratum(pool))
 		goto out;
+	if (pool->extranonce_subscribe && !subscribe_extranonce(pool))
+		goto out;
 	if (!auth_stratum(pool))
 		goto out;
 	ret = true;
@@ -3652,7 +3641,7 @@ retry:
 	ret = write(cgsem->pipefd[1], &buf, 1);
 	if (unlikely(ret == 0))
 		applog(LOG_WARNING, "Failed to write errno=%d" IN_FMT_FFL, errno, file, func, line);
-	else if (unlikely(ret < 0 && interrupted))
+	else if (unlikely(ret < 0 && interrupted()))
 		goto retry;
 }
 
@@ -3664,7 +3653,7 @@ retry:
 	ret = read(cgsem->pipefd[0], &buf, 1);
 	if (unlikely(ret == 0))
 		applog(LOG_WARNING, "Failed to read errno=%d" IN_FMT_FFL, errno, file, func, line);
-	else if (unlikely(ret < 0 && interrupted))
+	else if (unlikely(ret < 0 && interrupted()))
 		goto retry;
 }
 

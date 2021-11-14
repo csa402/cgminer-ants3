@@ -1300,6 +1300,19 @@ static void load_temp_cutoffs()
 	}
 }
 
+static char *set_float_0_to_500(const char *arg, float *i)
+{
+	char *err = opt_set_floatval(arg, i);
+
+	if (err)
+		return err;
+
+	if (*i < 0 || *i > 500)
+		return "Value out of range";
+
+	return NULL;
+}
+
 static char *set_float_100_to_500(const char *arg, float *i)
 {
 	char *err = opt_set_floatval(arg, i);
@@ -5855,7 +5868,8 @@ void write_config(FILE *fcfg)
 			}
 
 			if (opt->type & OPT_HASARG &&
-			    ((void *)opt->cb_arg == (void *)set_float_125_to_500 ||
+			    ((void *)opt->cb_arg == (void *)set_float_0_to_500 ||
+			     (void *)opt->cb_arg == (void *)set_float_125_to_500 ||
 			     (void *)opt->cb_arg == (void *)set_float_100_to_250 ||
 			     (void *)opt->cb_arg == (void *)set_float_100_to_500)) {
 				fprintf(fcfg, ",\n\"%s\" : \"%.1f\"", p+2, *(float *)opt->u.arg);

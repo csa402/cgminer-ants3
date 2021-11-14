@@ -27,15 +27,10 @@
 /* Path to cgminer install */
 #undef CGMINER_PREFIX
 
-/* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
-   systems. This function is required for `alloca.c' support on those systems.
-   */
-#undef CRAY_STACKSEG_END
-
 /* Defined if version of curl supports keepalive. */
 #undef CURL_HAS_KEEPALIVE
 
-/* Define to 1 if using `alloca.c'. */
+/* Define to 1 if using 'alloca.c'. */
 #undef C_ALLOCA
 
 /* int execv(const char*, char*const*); */
@@ -53,11 +48,10 @@
 /* Define to 1 when the gnulib module sigprocmask should be tested. */
 #undef GNULIB_TEST_SIGPROCMASK
 
-/* Define to 1 if you have `alloca', as a function or macro. */
+/* Define to 1 if you have 'alloca', as a function or macro. */
 #undef HAVE_ALLOCA
 
-/* Define to 1 if you have <alloca.h> and it should be used (not on Ultrix).
-   */
+/* Define to 1 if <alloca.h> works. */
 #undef HAVE_ALLOCA_H
 
 /* Define if __attribute__((cold)) */
@@ -94,11 +88,11 @@
    */
 #undef HAVE_DECL_MEMMEM
 
-/* Define to 1 if you have the <dlfcn.h> header file. */
-#undef HAVE_DLFCN_H
-
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
+
+/* Define if you have jansson >= 2.6 */
+#undef HAVE_JANSSON
 
 /* Defined to 1 if libcurl support built in */
 #undef HAVE_LIBCURL
@@ -121,9 +115,6 @@
 
 /* Define to 1 if you have the `memmem' function. */
 #undef HAVE_MEMMEM
-
-/* Define to 1 if you have the <memory.h> header file. */
-#undef HAVE_MEMORY_H
 
 /* Define to 1 if you have the `mprotect' function. */
 #undef HAVE_MPROTECT
@@ -233,6 +224,9 @@
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
 
+/* Define to 1 if you have the <stdio.h> header file. */
+#undef HAVE_STDIO_H
+
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
 
@@ -269,6 +263,9 @@
 /* Define to 1 if the system has the type `unsigned long long int'. */
 #undef HAVE_UNSIGNED_LONG_LONG_INT
 
+/* Define to 1 if you have the <uthash.h> header file. */
+#undef HAVE_UTHASH_H
+
 /* Define if __attribute__((warn_unused_result)) */
 #undef HAVE_WARN_UNUSED_RESULT
 
@@ -277,9 +274,6 @@
 
 /* Define if you have the 'wchar_t' type. */
 #undef HAVE_WCHAR_T
-
-/* Define to the sub-directory where libtool stores uninstalled libraries. */
-#undef LT_OBJDIR
 
 /* Define to a substitute value for mmap()'s MAP_ANONYMOUS flag. */
 #undef MAP_ANONYMOUS
@@ -309,6 +303,15 @@
    'ptrdiff_t'. */
 #undef PTRDIFF_T_SUFFIX
 
+/* Defined to 1 for R4 */
+#undef R4
+
+/* Defined to 1 for default */
+#undef S9_63
+
+/* Defined to 1 for T9 */
+#undef S9_PLUS
+
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'sig_atomic_t'. */
 #undef SIG_ATOMIC_T_SUFFIX
@@ -325,8 +328,22 @@
 	STACK_DIRECTION = 0 => direction of growth unknown */
 #undef STACK_DIRECTION
 
-/* Define to 1 if you have the ANSI C header files. */
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
 #undef STDC_HEADERS
+
+/* Defined to 1 for T9+ */
+#undef T9_18
+
+/* Defined to 1 if Antminer S1 Bitmain support is wanted */
+#undef USE_ANT_S1
+
+/* Defined to 1 if Antminer S2 Bitmain support is wanted */
+#undef USE_ANT_S2
+
+/* Defined to 1 if Antminer S3 Bitmain support is wanted */
+#undef USE_ANT_S3
 
 /* Defined to 1 if Avalon support is wanted */
 #undef USE_AVALON
@@ -336,6 +353,15 @@
 
 /* Defined to 1 if Avalon4 support is wanted */
 #undef USE_AVALON4
+
+/* Defined to 1 if Avalon7 support is wanted */
+#undef USE_AVALON7
+
+/* Defined to 1 if Avalon8 support is wanted */
+#undef USE_AVALON8
+
+/* Defined to 1 if Avalon miner support is wanted */
+#undef USE_AVALON_MINER
 
 /* Defined to 1 if BlackArrow Bitfury support is wanted */
 #undef USE_BAB
@@ -349,8 +375,11 @@
 /* Defined to 1 if BitFury ASIC support is wanted */
 #undef USE_BITFURY
 
-/* Defined to 1 if Bitmain Multi Chain support is wanted */
-#undef USE_BITMAIN
+/* Defined to 1 if BitFury 16nm ASIC support is wanted */
+#undef USE_BITFURY16
+
+/* Defined to 1 if Bitmain ASICs support is wanted */
+#undef USE_BITMAIN_SOC
 
 /* Defined to 1 if Bitmine A1 support is wanted */
 #undef USE_BITMINE_A1
@@ -358,11 +387,11 @@
 /* Defined to 1 if BlockErupter support is wanted */
 #undef USE_BLOCKERUPTER
 
-/* Defined to 1 if Bitmain Single Chain support is wanted */
-#undef USE_BMSC
-
 /* Defined to 1 if Cointerra support is wanted */
 #undef USE_COINTERRA
+
+/* Defined to 1 if Dragonmint T1 support is wanted */
+#undef USE_DRAGONMINT_T1
 
 /* Defined to 1 if Drillbit BitFury support is wanted */
 #undef USE_DRILLBIT
@@ -382,6 +411,9 @@
 /* Defined to 1 if KnC miner support is wanted */
 #undef USE_KNC
 
+/* Defined to 1 if libsystemd support is wanted */
+#undef USE_LIBSYSTEMD
+
 /* Defined to 1 if Minion BlackArrow ASIC support is wanted */
 #undef USE_MINION
 
@@ -396,6 +428,9 @@
 
 /* Defined to 1 if usbutils support required */
 #undef USE_USBUTILS
+
+/* Defined to 1 if version mask rolling is wanted */
+#undef USE_VMASK
 
 /* Version number of package */
 #undef VERSION
@@ -417,9 +452,6 @@
 
 /* Define to 1 if you need to in order for `stat' and other things to work. */
 #undef _POSIX_SOURCE
-
-/* "WinNT version for XP+ support" */
-#undef _WIN32_WINNT
 
 /* Define to 500 only on HP-UX. */
 #undef _XOPEN_SOURCE
@@ -467,14 +499,15 @@
 
 /* Define to the equivalent of the C99 'restrict' keyword, or to
    nothing if this is not supported.  Do not define if restrict is
-   supported directly.  */
+   supported only directly.  */
 #undef restrict
-/* Work around a bug in Sun C++: it does not support _Restrict or
-   __restrict__, even though the corresponding Sun C compiler ends up with
-   "#define restrict _Restrict" or "#define restrict __restrict__" in the
-   previous line.  Perhaps some future version of Sun C++ will work with
-   restrict; if so, hopefully it defines __RESTRICT like Sun C does.  */
-#if defined __SUNPRO_CC && !defined __RESTRICT
+/* Work around a bug in older versions of Sun C++, which did not
+   #define __restrict__ or support _Restrict or __restrict__
+   even though the corresponding Sun C compiler ended up with
+   "#define restrict _Restrict" or "#define restrict __restrict__"
+   in the previous line.  This workaround can be removed once
+   we assume Oracle Developer Studio 12.5 (2016) or later.  */
+#if defined __SUNPRO_CC && !defined __RESTRICT && !defined __restrict__
 # define _Restrict
 # define __restrict__
 #endif

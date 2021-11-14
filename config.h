@@ -20,10 +20,10 @@
 #define CGMINER_MAJOR_VERSION 4
 
 /* Micro version */
-#define CGMINER_MINOR_SUBVERSION 0
+#define CGMINER_MINOR_SUBVERSION 1
 
 /* Minor version */
-#define CGMINER_MINOR_VERSION 9
+#define CGMINER_MINOR_VERSION 11
 
 /* Path to cgminer install */
 #define CGMINER_PREFIX "/usr/local/bin"
@@ -95,11 +95,11 @@
    */
 #define HAVE_DECL_MEMMEM 1
 
-/* Define to 1 if you have the <dlfcn.h> header file. */
-#define HAVE_DLFCN_H 1
-
 /* Define to 1 if you have the <inttypes.h> header file. */
 #define HAVE_INTTYPES_H 1
+
+/* Define if you have jansson >= 2.6 */
+/* #undef HAVE_JANSSON */
 
 /* Defined to 1 if libcurl support built in */
 #define HAVE_LIBCURL 1
@@ -270,6 +270,9 @@
 /* Define to 1 if the system has the type `unsigned long long int'. */
 #define HAVE_UNSIGNED_LONG_LONG_INT 1
 
+/* Define to 1 if you have the <uthash.h> header file. */
+/* #undef HAVE_UTHASH_H */
+
 /* Define if __attribute__((warn_unused_result)) */
 #define HAVE_WARN_UNUSED_RESULT 1
 
@@ -278,9 +281,6 @@
 
 /* Define if you have the 'wchar_t' type. */
 #define HAVE_WCHAR_T 1
-
-/* Define to the sub-directory where libtool stores uninstalled libraries. */
-#define LT_OBJDIR ".libs/"
 
 /* Define to a substitute value for mmap()'s MAP_ANONYMOUS flag. */
 /* #undef MAP_ANONYMOUS */
@@ -295,7 +295,7 @@
 #define PACKAGE_NAME "cgminer"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "cgminer 4.9.0"
+#define PACKAGE_STRING "cgminer 4.11.1-xnsub-mod4"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "cgminer"
@@ -304,11 +304,20 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "4.9.0"
+#define PACKAGE_VERSION "4.11.1-xnsub-mod4"
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'ptrdiff_t'. */
 /* #undef PTRDIFF_T_SUFFIX */
+
+/* Defined to 1 for R4 */
+/* #undef R4 */
+
+/* Defined to 1 for default */
+/* #undef S9_63 */
+
+/* Defined to 1 for T9 */
+/* #undef S9_PLUS */
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'sig_atomic_t'. */
@@ -329,6 +338,18 @@
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
 
+/* Defined to 1 for T9+ */
+/* #undef T9_18 */
+
+/* Defined to 1 if Antminer S1 Bitmain support is wanted */
+/* #undef USE_ANT_S1 */
+
+/* Defined to 1 if Antminer S2 Bitmain support is wanted */
+/* #undef USE_ANT_S2 */
+
+/* Defined to 1 if Antminer S3 Bitmain support is wanted */
+#define USE_ANT_S3 1
+
 /* Defined to 1 if Avalon support is wanted */
 /* #undef USE_AVALON */
 
@@ -337,6 +358,15 @@
 
 /* Defined to 1 if Avalon4 support is wanted */
 /* #undef USE_AVALON4 */
+
+/* Defined to 1 if Avalon7 support is wanted */
+/* #undef USE_AVALON7 */
+
+/* Defined to 1 if Avalon8 support is wanted */
+/* #undef USE_AVALON8 */
+
+/* Defined to 1 if Avalon miner support is wanted */
+/* #undef USE_AVALON_MINER */
 
 /* Defined to 1 if BlackArrow Bitfury support is wanted */
 /* #undef USE_BAB */
@@ -350,8 +380,11 @@
 /* Defined to 1 if BitFury ASIC support is wanted */
 /* #undef USE_BITFURY */
 
-/* Defined to 1 if Bitmain Multi Chain support is wanted */
-#define USE_BITMAIN 1
+/* Defined to 1 if BitFury 16nm ASIC support is wanted */
+/* #undef USE_BITFURY16 */
+
+/* Defined to 1 if Bitmain ASICs support is wanted */
+/* #undef USE_BITMAIN_SOC */
 
 /* Defined to 1 if Bitmine A1 support is wanted */
 /* #undef USE_BITMINE_A1 */
@@ -359,11 +392,11 @@
 /* Defined to 1 if BlockErupter support is wanted */
 /* #undef USE_BLOCKERUPTER */
 
-/* Defined to 1 if Bitmain Single Chain support is wanted */
-/* #undef USE_BMSC */
-
 /* Defined to 1 if Cointerra support is wanted */
 /* #undef USE_COINTERRA */
+
+/* Defined to 1 if Dragonmint T1 support is wanted */
+/* #undef USE_DRAGONMINT_T1 */
 
 /* Defined to 1 if Drillbit BitFury support is wanted */
 /* #undef USE_DRILLBIT */
@@ -383,6 +416,9 @@
 /* Defined to 1 if KnC miner support is wanted */
 /* #undef USE_KNC */
 
+/* Defined to 1 if libsystemd support is wanted */
+/* #undef USE_LIBSYSTEMD */
+
 /* Defined to 1 if Minion BlackArrow ASIC support is wanted */
 /* #undef USE_MINION */
 
@@ -398,8 +434,11 @@
 /* Defined to 1 if usbutils support required */
 #define USE_USBUTILS 1
 
+/* Defined to 1 if version mask rolling is wanted */
+/* #undef USE_VMASK */
+
 /* Version number of package */
-#define VERSION "4.9.0"
+#define VERSION "4.11.1-xnsub-mod4"
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'wchar_t'. */
@@ -418,9 +457,6 @@
 
 /* Define to 1 if you need to in order for `stat' and other things to work. */
 /* #undef _POSIX_SOURCE */
-
-/* "WinNT version for XP+ support" */
-/* #undef _WIN32_WINNT */
 
 /* Define to 500 only on HP-UX. */
 /* #undef _XOPEN_SOURCE */

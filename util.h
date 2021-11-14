@@ -140,7 +140,7 @@ void cgsleep_ms(int ms);
 void cgsleep_us(int64_t us);
 void cgtimer_time(cgtimer_t *ts_start);
 #define cgsleep_prepare_r(ts_start) cgtimer_time(ts_start)
-#ifdef USE_BITMAIN_SOC
+#if defined(WIN32) || defined(__APPLE__) || defined(USE_BITMAIN_SOC)
 void cgsleep_ms_r(cgtimer_t *ts_start, int ms);
 void cgsleep_us_r(cgtimer_t *ts_start, int64_t us);
 #else
@@ -158,6 +158,7 @@ void ckrecalloc(void **ptr, size_t old, size_t new, const char *file, const char
 #define recalloc(ptr, old, new) ckrecalloc((void *)&(ptr), old, new, __FILE__, __func__, __LINE__)
 char *recv_line(struct pool *pool);
 bool parse_method(struct pool *pool, char *s);
+bool subscribe_extranonce(struct pool *pool);
 bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port);
 bool auth_stratum(struct pool *pool);
 bool initiate_stratum(struct pool *pool);
