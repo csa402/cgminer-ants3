@@ -1413,6 +1413,16 @@ void cgcond_time(struct timespec *abstime)
 	clock_gettime(CLOCK_REALTIME, abstime);
 }
 
+#ifdef USE_GEKKO
+/* Get CLOCK_REALTIME for display purposes */
+void cgtime_real(struct timeval *tv)
+{
+	struct timespec tp;
+	clock_gettime(CLOCK_REALTIME, &tp);
+	tv->tv_sec = tp.tv_sec;
+	tv->tv_usec = tp.tv_nsec / 1000;
+}
+#endif
 #ifdef WIN32
 /* Mingw32 has no strsep so create our own custom one  */
 
@@ -1729,18 +1739,7 @@ double tdiff(struct timeval *end, struct timeval *start)
 {
 	return end->tv_sec - start->tv_sec + (end->tv_usec - start->tv_usec) / 1000000.0;
 }
-void check_extranonce_option(struct pool *pool, char * url)
-{
-	int i;
- 
- 	for (i = 0; url[i]; i++) url[i] = tolower(url[i]);
- 
- 	if (strstr(url, ".nicehash.com") || strstr(url, "#xnsub"))
- 	{
- 		pool->extranonce_subscribe = true;
- 		applog(LOG_DEBUG, "Pool %d extranonce subscribe enabled.", pool->pool_no);
- 	}
-}
+
 bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port)
 {
 	char *url_begin, *url_end, *ipv6_begin, *ipv6_end, *port_start = NULL;
@@ -3336,8 +3335,26 @@ resend:
 	}
 
 	/* Attempt to configure stratum protocol feature set first. */
+#ifdef USE_GEKKO
+	configure_stratum_mining(pool);
+	if (!pool->sock) {
+		//repair damage done by configure_stratum_mining
+		if (!setup_stratum_socket(pool)) {
+			sockd = false;
+			goto out;
+		}
+
+		sockd = true;
+
+		if (recvd) {
+			/* Get rid of any crap lying around if we're resending */
+			clear_sock(pool);
+		}
+	}
+#else
 	if (!configure_stratum_mining(pool))
 		goto out;
+#endif
 
 	if (recvd) {
 		sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": []}", swork_id++);

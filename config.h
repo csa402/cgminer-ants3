@@ -20,10 +20,10 @@
 #define CGMINER_MAJOR_VERSION 4
 
 /* Micro version */
-#define CGMINER_MINOR_SUBVERSION 1
+#define CGMINER_MINOR_SUBVERSION 0-wrk
 
 /* Minor version */
-#define CGMINER_MINOR_VERSION 11
+#define CGMINER_MINOR_VERSION 12
 
 /* Path to cgminer install */
 #define CGMINER_PREFIX "/usr/local/bin"
@@ -295,7 +295,7 @@
 #define PACKAGE_NAME "cgminer"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "cgminer 4.11.1-xnsub-mod4"
+#define PACKAGE_STRING "cgminer 4.12.0-wrk"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "cgminer"
@@ -304,7 +304,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "4.11.1-xnsub-mod4"
+#define PACKAGE_VERSION "4.12.0-wrk"
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'ptrdiff_t'. */
@@ -401,6 +401,9 @@
 /* Defined to 1 if Drillbit BitFury support is wanted */
 /* #undef USE_DRILLBIT */
 
+/* Defined to 1 if GekkoScience support is wanted */
+/* #undef USE_GEKKO */
+
 /* Defined to 1 if Hashfast support is wanted */
 /* #undef USE_HASHFAST */
 
@@ -438,7 +441,7 @@
 /* #undef USE_VMASK */
 
 /* Version number of package */
-#define VERSION "4.11.1-xnsub-mod4"
+#define VERSION "4.12.0-wrk"
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'wchar_t'. */

@@ -1,6 +1,6 @@
 /*
+ * Copyright 2011-2021 Andrew Smith
  * Copyright 2011-2018 Con Kolivas
- * Copyright 2011-2015 Andrew Smith
  * Copyright 2011-2012 Luke Dashjr
  * Copyright 2010 Jeff Garzik
  *
@@ -11,6 +11,13 @@
  */
 
 #include "config.h"
+
+#ifdef __GNUC__
+#if __GNUC__ >= 7
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
+#endif
 
 #ifdef HAVE_CURSES
 #include <curses.h>
@@ -128,6 +135,10 @@ char *curly = ":D";
 #include "driver-cointerra.h"
 #endif
 
+#ifdef USE_GEKKO
+#include "driver-gekko.h"
+#endif
+
 #ifdef USE_HASHFAST
 #include "driver-hashfast.h"
 #endif
@@ -182,6 +193,7 @@ static FILE *benchfile_in;
 static int benchfile_line;
 static int benchfile_work;
 static bool opt_benchmark;
+static bool opt_blockcheck;
 bool have_longpoll;
 bool want_per_device_stats;
 bool use_syslog;
@@ -219,7 +231,7 @@ bool use_curses = true;
 #else
 bool use_curses;
 #endif
-static bool opt_widescreen;
+bool opt_widescreen;
 static bool alt_status;
 static bool switch_status;
 static bool opt_submit_stale = true;
@@ -249,7 +261,6 @@ char *opt_icarus_options = NULL;
 char *opt_icarus_timing = NULL;
 float opt_anu_freq = 250;
 float opt_au3_freq = 225;
-float opt_compac_freq = 150;
 int opt_au3_volt = 775;
 float opt_rock_freq = 270;
 #endif
@@ -290,6 +301,33 @@ static char *opt_set_avalonm_freq;
 #endif
 #ifdef USE_BLOCKERUPTER
 int opt_bet_clk = 0;
+#endif
+#ifdef USE_GEKKO
+char *opt_gekko_serial = NULL;
+bool opt_gekko_noboost = 0;
+bool opt_gekko_lowboost = 0;
+bool opt_gekko_gsc_detect = 0;
+bool opt_gekko_gsd_detect = 0;
+bool opt_gekko_gse_detect = 0;
+bool opt_gekko_gsh_detect = 0;
+bool opt_gekko_gsi_detect = 0;
+bool opt_gekko_gsf_detect = 0;
+float opt_gekko_gsc_freq = 150;
+float opt_gekko_gsd_freq = 100;
+float opt_gekko_gse_freq = 150;
+float opt_gekko_tune_up = 97;
+float opt_gekko_tune_down = 95;
+float opt_gekko_wait_factor = 0.5;
+float opt_gekko_step_freq = 6.25;
+int opt_gekko_gsh_freq = 100;
+int opt_gekko_gsi_freq = 550;
+int opt_gekko_gsf_freq = 200;
+int opt_gekko_bauddiv = 0;
+int opt_gekko_gsh_vcore = 400;
+int opt_gekko_start_freq = 100;
+int opt_gekko_step_delay = 15;
+bool opt_gekko_mine2 = false;
+int opt_gekko_tune2 = 0;
 #endif
 #ifdef USE_HASHRATIO
 #include "driver-hashratio.h"
@@ -1808,6 +1846,9 @@ static struct opt_table opt_config_table[] = {
 		     opt_set_charp, NULL, &opt_bitmine_a1_options,
 		     "Bitmine A1 options ref_clk_khz:sys_clk_khz:spi_clk_khz:override_chip_num"),
 #endif
+	OPT_WITHOUT_ARG("--block-check",
+			opt_set_bool, &opt_blockcheck,
+			"Run a block diff check of the binary then exit"),
 #ifdef USE_BITFURY
 	OPT_WITH_ARG("--bxf-bits",
 		     set_int_32_to_63, opt_show_intval, &opt_bxf_bits,
@@ -1902,6 +1943,79 @@ static struct opt_table opt_config_table[] = {
                      opt_set_intval, opt_show_intval, &opt_bet_clk,
                      "Set Block Erupter clock"),
 #endif
+#ifdef USE_GEKKO
+	OPT_WITH_ARG("--gekko-serial",
+			 opt_set_charp, NULL, &opt_gekko_serial,
+			 "Detect GekkoScience Device by Serial Number"),
+	OPT_WITHOUT_ARG("--gekko-compac-detect",
+			 opt_set_bool, &opt_gekko_gsc_detect,
+			 "Detect GekkoScience Compac BM1384"),
+	OPT_WITHOUT_ARG("--gekko-2pac-detect",
+			 opt_set_bool, &opt_gekko_gsd_detect,
+			 "Detect GekkoScience 2Pac BM1384"),
+	OPT_WITHOUT_ARG("--gekko-terminus-detect",
+			 opt_set_bool, &opt_gekko_gse_detect,
+			 "Detect GekkoScience Terminus BM1384"),
+	OPT_WITHOUT_ARG("--gekko-newpac-detect",
+			 opt_set_bool, &opt_gekko_gsh_detect,
+			 "Detect GekkoScience NewPac BM1387"),
+	OPT_WITHOUT_ARG("--gekko-r606-detect",
+			 opt_set_bool, &opt_gekko_gsi_detect,
+			 "Detect GekkoScience Terminus BM1387"),
+	OPT_WITHOUT_ARG("--gekko-compacf-detect",
+			 opt_set_bool, &opt_gekko_gsf_detect,
+			 "Detect GekkoScience CompacF BM1397"),
+	OPT_WITHOUT_ARG("--gekko-noboost",
+			 opt_set_bool, &opt_gekko_noboost,
+			 "Disable GekkoScience NewPac/R606/CompacF AsicBoost"),
+	OPT_WITHOUT_ARG("--gekko-lowboost",
+			 opt_set_bool, &opt_gekko_lowboost,
+			 "GekkoScience NewPac/R606/CompacF AsicBoost - 2 midstate"),
+	OPT_WITH_ARG("--gekko-terminus-freq",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_gse_freq,
+		     "Set GekkoScience Terminus BM1384 frequency in MHz, range 6.25-500"),
+	OPT_WITH_ARG("--gekko-2pac-freq",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_gsd_freq,
+		     "Set GekkoScience 2Pac BM1384 frequency in MHz, range 6.25-500"),
+	OPT_WITH_ARG("--gekko-compac-freq",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_gsc_freq,
+		     "Set GekkoScience Compac BM1384 frequency in MHz, range 6.25-500"),
+	OPT_WITH_ARG("--gekko-tune-down",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_tune_down,
+		     "Set GekkoScience miner minimum hash quality, range 0-100"),
+	OPT_WITH_ARG("--gekko-tune-up",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_tune_up,
+		     "Set GekkoScience miner ramping hash threshold, rante 0-99"),
+	OPT_WITH_ARG("--gekko-wait-factor",
+		     set_float_0_to_500, opt_show_floatval, &opt_gekko_wait_factor,
+		     "Set GekkoScience miner task send wait factor, range 0.01-1.00"),
+	OPT_WITH_ARG("--gekko-bauddiv",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_bauddiv,
+		     "Set GekkoScience BM1387 baud divider {0: auto, 1: 1.5M, 7: 375K, 13: 214K, 25: 115K}"),
+	OPT_WITH_ARG("--gekko-newpac-freq",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_gsh_freq,
+		     "Set GekkoScience NewPac BM1387 frequency in MHz, range 50-900"),
+	OPT_WITH_ARG("--gekko-r606-freq",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_gsi_freq,
+		     "Set GekkoScience Terminus R606 frequency in MHz, range 50-900"),
+	OPT_WITH_ARG("--gekko-compacf-freq",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_gsf_freq,
+		     "Set GekkoScience CompacF BM1397 frequency in MHz, range 100-800"),
+	OPT_WITH_ARG("--gekko-start-freq",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_start_freq,
+                     "Ramp start frequency MHz 25-500"),
+	OPT_WITH_ARG("--gekko-step-freq",
+		     set_float_0_to_500, opt_show_intval, &opt_gekko_step_freq,
+		     "Ramp frequency step MHz 1-100"),
+	OPT_WITH_ARG("--gekko-step-delay",
+		     set_int_0_to_9999, opt_show_intval, &opt_gekko_step_delay,
+		     "Ramp step interval range 1-600"),
+	OPT_WITHOUT_ARG("--gekko-mine2",
+			opt_set_bool, &opt_gekko_mine2, "Use mine2"),
+	OPT_WITH_ARG("--gekko-tune2",
+			set_int_0_to_9999, opt_show_intval, &opt_gekko_tune2,
+			"Tune up mine2 mins 30-9999, default 0=never"),
+#endif
 #ifdef HAVE_LIBCURL
 	OPT_WITH_ARG("--btc-address",
 		     opt_set_charp, NULL, &opt_btc_address,
@@ -1909,11 +2023,6 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--btc-sig",
 		     opt_set_charp, NULL, &opt_btc_sig,
 		     "Set signature to add to coinbase when solo mining (optional)"),
-#endif
-#ifdef USE_ICARUS
-	OPT_WITH_ARG("--compac-freq",
-		     set_float_100_to_500, &opt_show_floatval, &opt_compac_freq,
-		     "Set GekkoScience Compac frequency in MHz, range 100-500"),
 #endif
 #ifdef HAVE_CURSES
 	OPT_WITHOUT_ARG("--compact",
@@ -2536,6 +2645,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_DRILLBIT
                 "drillbit "
+#endif
+#ifdef USE_GEKKO
+		"gekko "
 #endif
 #ifdef USE_HASHFAST
 		"hashfast "
@@ -3200,10 +3312,12 @@ static bool gbt_solo_decode(struct pool *pool, json_t *res_val)
 	ofs += ser_number(pool->scriptsig_base + ofs, height); // max 5
 
 	/* Followed by flags */
-	len = strlen(flags) / 2;
-	pool->scriptsig_base[ofs++] = len;
-	hex2bin(pool->scriptsig_base + ofs, flags, len);
-	ofs += len;
+	if (flags) {
+		len = strlen(flags) / 2;
+		pool->scriptsig_base[ofs++] = len;
+		hex2bin(pool->scriptsig_base + ofs, flags, len);
+		ofs += len;
+	}
 
 	/* Followed by timestamp */
 	cgtime(&now);
@@ -4619,8 +4733,13 @@ static void kill_mining(void)
 		if (thr && PTH(thr) != 0L)
 			pth = &thr->pth;
 		thr_info_cancel(thr);
+#if !defined __MINGW32__ || __WINPTHREADS_VERSION >= 0x00050000
 		if (pth && *pth)
 			pthread_join(*pth, NULL);
+#else
+		if (pth && pth->p)
+			pthread_join(*pth, NULL);
+#endif
 	}
 }
 
@@ -5451,7 +5570,11 @@ static void set_curblock(const char *hexstr, const unsigned char *bedata)
 	int ofs;
 
 	cg_wlock(&ch_lock);
+#ifdef USE_GEKKO
+	cgtime_real(&block_timeval);
+#else
 	cgtime(&block_timeval);
+#endif
 	strcpy(current_hash, hexstr);
 	cg_memcpy(current_block, bedata, 32);
 	get_timestamp(blocktime, sizeof(blocktime), &block_timeval);
@@ -6010,7 +6133,7 @@ void zero_stats(void)
 	}
 }
 
-static void set_highprio(void)
+static void __maybe_unused set_highprio(void)
 {
 #ifndef WIN32
 	int ret = nice(-10);
@@ -6022,7 +6145,7 @@ static void set_highprio(void)
 #endif
 }
 
-static void set_lowprio(void)
+static void __maybe_unused set_lowprio(void)
 {
 #ifndef WIN32
 	int ret = nice(10);
@@ -8123,17 +8246,22 @@ static void submit_work_async(struct work *work)
 	}
 }
 
-void inc_hw_errors(struct thr_info *thr)
+void inc_hw_errors_n(struct thr_info *thr, int n)
 {
 	applog(LOG_INFO, "%s %d: invalid nonce - HW error", thr->cgpu->drv->name,
 	       thr->cgpu->device_id);
 
 	mutex_lock(&stats_lock);
-	hw_errors++;
-	thr->cgpu->hw_errors++;
+	hw_errors += n;
+	thr->cgpu->hw_errors += n;
 	mutex_unlock(&stats_lock);
 
 	thr->cgpu->drv->hw_error(thr);
+}
+
+void inc_hw_errors(struct thr_info *thr)
+{
+	inc_hw_errors_n(thr, 1);
 }
 
 /* Fills in the work nonce and builds the output data in work->hash */
@@ -8167,6 +8295,23 @@ bool test_nonce_diff(struct work *work, uint32_t nonce, double diff)
 	return (le64toh(*hash64) <= diff64);
 }
 
+/* testing a nonce and return the diff - 0 means invalid */
+double test_nonce_value(struct work *work, uint32_t nonce)
+{
+	uint32_t *hash_32 = (uint32_t *)(work->hash + 28);
+	double d64, s64, ds;
+
+	rebuild_nonce(work, nonce);
+	if (*hash_32 != 0)
+		return 0.0;
+
+	d64 = truediffone;
+	s64 = le256todouble(work->hash);
+	ds = d64 / s64;
+
+	return ds;
+}
+
 static void update_work_stats(struct thr_info *thr, struct work *work)
 {
 	double test_diff = current_diff;
@@ -8195,6 +8340,11 @@ bool submit_tested_work(struct thr_info *thr, struct work *work)
 {
 	struct work *work_out;
 	update_work_stats(thr, work);
+
+	// dev testing logging the difficulty of all nonces
+	//double diff = truediffone / le256todouble(work->hash);
+	//applog(LOG_ERR, "%s() %s %d: diff=%.1f", __func__,
+	//	thr->cgpu->drv->name, thr->cgpu->device_id, diff);
 
 	if (!fulltest(work->hash, work->target)) {
 		applog(LOG_INFO, "%s %d: Share above target", thr->cgpu->drv->name,
@@ -10423,6 +10573,102 @@ int main(int argc, char *argv[])
 	if (!config_loaded)
 		load_default_config();
 
+	// use this to test diff value handing on various builds and architectures.
+	// since share submission depends on the difficulty calculated vs the pool
+	// work requirement, if this test fails, cgminer could discard a block due
+	// to the difficulty calculation being wrong and too low vs the pool work
+	if (opt_blockcheck)
+	{
+// how many bits are skipped for diffone
+#define BC_DIFF1_BITS 32
+// number of bits in a hash
+#define BC_MAX_BITS 256
+// number of bits set to 1 for diffone
+#define BC_TEST_BITS 16
+#define HEX_BYTE 8
+// ratio limits on the difference between actual and test
+#define BC_DELTA_PLUS_LIM 0.00000001
+#define BC_DELTA_MINUS_LIM (-0.00000001)
+
+		struct work test_work;
+
+#define ASSERTbc(condition) __maybe_unused static char sizeof_work_hash_must_be_32[(condition)?1:-1]
+ASSERTbc(sizeof(test_work.hash) == (BC_MAX_BITS / HEX_BYTE));
+
+		double test, delta, ratio, change, powval, powdelta, powratio;
+		double diff = 1.0, prevdiff = 0.0, prevtest = 0.0;
+		bool deltabad, diffbad, fail = false;
+		int i, byte, j;
+
+		for (i = BC_DIFF1_BITS; i < BC_MAX_BITS - BC_TEST_BITS; i += HEX_BYTE)
+		{
+			byte = ((BC_MAX_BITS - 1) - i) / HEX_BYTE;
+
+			// set the hash value to 0000...00ffff00...0000
+
+			for (j = 0; j < (BC_MAX_BITS / HEX_BYTE); j++)
+				test_work.hash[j] = 0;
+
+			// BC_TEST_BITS
+			test_work.hash[byte] = 0xff;
+			test_work.hash[byte - 1] = 0xff;
+
+			// Of course MUST use the same calculation as all diff value tests
+			//  use to decide when to submit shares
+			test = truediffone / le256todouble(test_work.hash);
+
+			delta = diff - test;
+			ratio = delta / diff;
+
+			if (ratio < BC_DELTA_MINUS_LIM || ratio > BC_DELTA_PLUS_LIM)
+			{
+				deltabad = true;
+				fail = true;
+			}
+			else
+				deltabad = false;
+
+			powval = pow(2.0, (double)(i - BC_DIFF1_BITS));
+			powdelta = diff - powval;
+			powratio = powdelta / powval;
+
+			if (powratio < BC_DELTA_MINUS_LIM || powratio > BC_DELTA_PLUS_LIM)
+			{
+				diffbad = true;
+				fail = true;
+			}
+			else
+				diffbad = false;
+
+			if (diff < prevdiff || test < prevtest)
+				fail = true;
+
+			printf("%3d%s%s real=%.8E calc=%.8E delta=%.8E%s pow=%.8E powdelta=%.8E%s\n",
+				i, (diff < prevdiff) ? " FATAL DROP IN DIFF:": "",
+				(test < prevtest) ? " FATAL DROP IN TEST:": "", diff,
+				test, delta, deltabad ? " DELTA TOO LARGE!" : "",
+				powval, powdelta, diffbad ? " POW DELTA TOO LARGE!" : "");
+
+			prevtest = test;
+			prevdiff = diff;
+
+			diff *= (1 << HEX_BYTE);
+
+			change = diff / prevdiff;
+			if (change != (1 << HEX_BYTE))
+			{
+				fail = true;
+				printf("FATAL for %d double size doesn't handle above %.8E\n", i, prevdiff);
+			}
+		}
+		if (fail)
+			printf("\nTEST FAILED! See above.\n");
+		else
+			printf("\nTest succeeded.\n");
+
+		return 0;
+	}
+
 	if (opt_benchmark || opt_benchfile) {
 		struct pool *pool;
 
@@ -10740,6 +10986,12 @@ begin_bench:
 
 		cgpu->rolling = cgpu->total_mhashes = 0;
 	}
+#ifdef USE_GEKKO
+        cgtime_real(&total_tv_start);
+#else
+        cgtime(&total_tv_start);
+#endif
+	get_datestamp(datestamp, sizeof(datestamp), &total_tv_start);
 
 #ifdef USE_BITMAIN_SOC
 	struct sysinfo sInfo;
@@ -10759,7 +11011,6 @@ begin_bench:
 	cgtime(&total_tv_start);
 	cgtime(&total_tv_end);
 	cgtime(&tv_hashmeter);
-	get_datestamp(datestamp, sizeof(datestamp), &total_tv_start);
 
 	watchpool_thr_id = 2;
 	thr = &control_thr[watchpool_thr_id];
@@ -10804,7 +11055,11 @@ begin_bench:
 	if (total_control_threads != 8)
 		early_quit(1, "incorrect total_control_threads (%d) should be 8", total_control_threads);
 
+#ifdef USE_GEKKO
+	set_lowprio();
+#else
 	set_highprio();
+#endif
 
 #ifdef USE_LIBSYSTEMD
 	sd_notify(false, "READY=1\n"

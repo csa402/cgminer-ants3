@@ -400,6 +400,9 @@
 /* Defined to 1 if Drillbit BitFury support is wanted */
 #undef USE_DRILLBIT
 
+/* Defined to 1 if GekkoScience support is wanted */
+#undef USE_GEKKO
+
 /* Defined to 1 if Hashfast support is wanted */
 #undef USE_HASHFAST
 

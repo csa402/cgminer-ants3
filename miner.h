@@ -3,6 +3,21 @@
 
 #include "config.h"
 
+#ifdef __GNUC__
+#ifdef __USE_FORTIFY_LEVEL
+#undef __USE_FORTIFY_LEVEL
+#endif
+// ignore n truncation warnings
+#define __USE_FORTIFY_LEVEL 1
+#if __GNUC__ >= 7
+// ignore the vast number of such non-bug warnings
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wtautological-compare"
+#endif
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/time.h>
@@ -258,6 +273,7 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(bitmineA1) \
 	DRIVER_ADD_COMMAND(blockerupter) \
 	DRIVER_ADD_COMMAND(cointerra) \
+	DRIVER_ADD_COMMAND(gekko) \
 	DRIVER_ADD_COMMAND(dragonmintT1) \
 	DRIVER_ADD_COMMAND(hashfast) \
 	DRIVER_ADD_COMMAND(drillbit) \
@@ -998,6 +1014,7 @@ struct pool;
 #define API_MCAST_CODE "FTW"
 #define API_MCAST_ADDR "224.0.0.75"
 
+extern bool opt_widescreen;
 extern bool opt_work_update;
 extern bool opt_protocol;
 extern bool have_longpoll;
@@ -1029,7 +1046,6 @@ extern char *opt_icarus_options;
 extern char *opt_icarus_timing;
 extern float opt_anu_freq;
 extern float opt_au3_freq;
-extern float opt_compac_freq;
 extern int opt_au3_volt;
 extern float opt_rock_freq;
 #endif
@@ -1037,6 +1053,33 @@ extern bool opt_worktime;
 #ifdef USE_AVALON
 extern char *opt_avalon_options;
 extern char *opt_bitburner_fury_options;
+#endif
+#ifdef USE_GEKKO
+extern char *opt_gekko_serial;
+extern bool opt_gekko_noboost;
+extern bool opt_gekko_lowboost;
+extern bool opt_gekko_gsc_detect;
+extern bool opt_gekko_gsd_detect;
+extern bool opt_gekko_gse_detect;
+extern bool opt_gekko_gsh_detect;
+extern bool opt_gekko_gsi_detect;
+extern bool opt_gekko_gsf_detect;
+extern float opt_gekko_gsc_freq;
+extern float opt_gekko_gsd_freq;
+extern float opt_gekko_gse_freq;
+extern float opt_gekko_tune_down;
+extern float opt_gekko_tune_up;
+extern float opt_gekko_wait_factor;
+extern float opt_gekko_step_freq;
+extern int opt_gekko_bauddiv;
+extern int opt_gekko_gsh_freq;
+extern int opt_gekko_gsi_freq;
+extern int opt_gekko_gsf_freq;
+extern int opt_gekko_gsh_vcore;
+extern int opt_gekko_start_freq;
+extern int opt_gekko_step_delay;
+extern bool opt_gekko_mine2;
+extern int opt_gekko_tune2;
 #endif
 #ifdef USE_KLONDIKE
 extern char *opt_klondike_options;

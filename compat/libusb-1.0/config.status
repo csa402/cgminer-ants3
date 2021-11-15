@@ -438,11 +438,11 @@ Copyright (C) 2012 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/home/pi/cgminer-ants3/compat/libusb-1.0'
+ac_pwd='/home/wareck/cgminer-ants3/compat/libusb-1.0'
 srcdir='.'
 INSTALL='/usr/bin/install -c'
-MKDIR_P='/usr/bin/mkdir -p'
-AWK='mawk'
+MKDIR_P='/bin/mkdir -p'
+AWK='gawk'
 test -n "$AWK" || AWK=awk
 # The default lists apply if the user does not specify any file.
 ac_need_defaults=:
@@ -540,7 +540,7 @@ _ASBOX
 #
 # INIT-COMMANDS
 #
-AMDEP_TRUE="" MAKE="make"
+AMDEP_TRUE="" ac_aux_dir="."
 
 
 # The HP-UX ksh and POSIX shell print the target directory to stdout
@@ -555,23 +555,23 @@ macro_revision='2.4.6'
 enable_shared='yes'
 enable_static='yes'
 pic_mode='default'
-enable_fast_install='needless'
+enable_fast_install='yes'
 shared_archive_member_spec=''
 SHELL='/bin/bash'
 ECHO='printf %s\n'
 PATH_SEPARATOR=':'
 host_alias=''
-host='armv6l-unknown-linux-gnueabihf'
-host_os='linux-gnueabihf'
+host='x86_64-pc-linux-gnu'
+host_os='linux-gnu'
 build_alias=''
-build='armv6l-unknown-linux-gnueabihf'
-build_os='linux-gnueabihf'
-SED='/usr/bin/sed'
-Xsed='/usr/bin/sed -e 1s/^X//'
-GREP='/usr/bin/grep'
-EGREP='/usr/bin/grep -E'
-FGREP='/usr/bin/grep -F'
-LD='/usr/bin/ld'
+build='x86_64-pc-linux-gnu'
+build_os='linux-gnu'
+SED='/bin/sed'
+Xsed='/bin/sed -e 1s/^X//'
+GREP='/bin/grep'
+EGREP='/bin/grep -E'
+FGREP='/bin/grep -F'
+LD='/usr/bin/ld -m elf_x86_64'
 NM='/usr/bin/nm -B'
 LN_S='ln -s'
 max_cmd_len='1572864'
@@ -612,7 +612,7 @@ lt_cv_sys_global_symbol_to_c_name_address_lib_prefix='sed -n -e '\''s/^: \(.*\) 
 lt_cv_nm_interface='BSD nm'
 nm_file_list_spec='@'
 lt_sysroot=''
-lt_cv_truncate_bin='/usr/bin/dd bs=4096 count=1'
+lt_cv_truncate_bin='/bin/dd bs=4096 count=1'
 objdir='.libs'
 MAGIC_CMD='file'
 lt_prog_compiler_no_builtin_flag=' -fno-builtin'
@@ -669,7 +669,7 @@ need_version='no'
 version_type='linux'
 runpath_var='LD_RUN_PATH'
 shlibpath_var='LD_LIBRARY_PATH'
-shlibpath_overrides_runpath='yes'
+shlibpath_overrides_runpath='no'
 libname_spec='lib$name'
 library_names_spec='$libname$release$shared_ext$versuffix $libname$release$shared_ext$major $libname$shared_ext'
 soname_spec='$libname$release$shared_ext$major'
@@ -679,8 +679,8 @@ postuninstall_cmds=''
 finish_cmds='PATH="\$PATH:/sbin" ldconfig -n $libdir'
 finish_eval=''
 hardcode_into_libs='yes'
-sys_lib_search_path_spec='/usr/lib/gcc/arm-linux-gnueabihf/8 /usr/lib/arm-linux-gnueabihf /usr/lib /lib/arm-linux-gnueabihf /lib '
-configure_time_dlsearch_path='/lib /usr/lib /opt/vc/lib /usr/local/lib/arm-linux-gnueabihf /lib/arm-linux-gnueabihf /usr/lib/arm-linux-gnueabihf /usr/lib/arm-linux-gnueabihf/libfakeroot /usr/local/lib '
+sys_lib_search_path_spec='/usr/lib/gcc/x86_64-linux-gnu/5 /usr/lib/x86_64-linux-gnu /usr/lib /lib/x86_64-linux-gnu /lib '
+configure_time_dlsearch_path='/lib /usr/lib /usr/lib/x86_64-linux-gnu/libfakeroot /usr/local/lib /usr/lib/vmware-tools/lib32/libvmGuestLib.so /usr/lib/vmware-tools/lib64/libvmGuestLib.so /usr/lib/vmware-tools/lib32/libvmGuestLibJava.so /usr/lib/vmware-tools/lib64/libvmGuestLibJava.so /usr/lib/vmware-tools/lib32/libDeployPkg.so /usr/lib/vmware-tools/lib64/libDeployPkg.so /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu/mesa-egl /usr/lib/x86_64-linux-gnu/mesa /lib32 /usr/lib32 /libx32 /usr/libx32 '
 configure_time_lt_sys_library_path=''
 hardcode_action='immediate'
 enable_dlopen='unknown'
@@ -907,19 +907,19 @@ S["LN_S"]="ln -s"
 S["NM"]="/usr/bin/nm -B"
 S["ac_ct_DUMPBIN"]=""
 S["DUMPBIN"]=""
-S["LD"]="/usr/bin/ld"
-S["FGREP"]="/usr/bin/grep -F"
-S["EGREP"]="/usr/bin/grep -E"
-S["GREP"]="/usr/bin/grep"
-S["SED"]="/usr/bin/sed"
-S["host_os"]="linux-gnueabihf"
-S["host_vendor"]="unknown"
-S["host_cpu"]="armv6l"
-S["host"]="armv6l-unknown-linux-gnueabihf"
-S["build_os"]="linux-gnueabihf"
-S["build_vendor"]="unknown"
-S["build_cpu"]="armv6l"
-S["build"]="armv6l-unknown-linux-gnueabihf"
+S["LD"]="/usr/bin/ld -m elf_x86_64"
+S["FGREP"]="/bin/grep -F"
+S["EGREP"]="/bin/grep -E"
+S["GREP"]="/bin/grep"
+S["SED"]="/bin/sed"
+S["host_os"]="linux-gnu"
+S["host_vendor"]="pc"
+S["host_cpu"]="x86_64"
+S["host"]="x86_64-pc-linux-gnu"
+S["build_os"]="linux-gnu"
+S["build_vendor"]="pc"
+S["build_cpu"]="x86_64"
+S["build"]="x86_64-pc-linux-gnu"
 S["LIBTOOL"]="$(SHELL) $(top_builddir)/libtool"
 S["am__fastdepCC_FALSE"]="#"
 S["am__fastdepCC_TRUE"]=""
@@ -928,6 +928,7 @@ S["am__nodep"]="_no"
 S["AMDEPBACKSLASH"]="\\"
 S["AMDEP_FALSE"]="#"
 S["AMDEP_TRUE"]=""
+S["am__quote"]=""
 S["am__include"]="include"
 S["DEPDIR"]=".deps"
 S["OBJEXT"]="o"
@@ -949,17 +950,17 @@ S["am__tar"]="$${TAR-tar} chof - \"$$tardir\""
 S["AMTAR"]="$${TAR-tar}"
 S["am__leading_dot"]="."
 S["SET_MAKE"]=""
-S["AWK"]="mawk"
+S["AWK"]="gawk"
 S["mkdir_p"]="$(MKDIR_P)"
-S["MKDIR_P"]="/usr/bin/mkdir -p"
+S["MKDIR_P"]="/bin/mkdir -p"
 S["INSTALL_STRIP_PROGRAM"]="$(install_sh) -c -s"
 S["STRIP"]="strip"
-S["install_sh"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/install-sh"
-S["MAKEINFO"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/missing makeinfo"
-S["AUTOHEADER"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/missing autoheader"
-S["AUTOMAKE"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/missing automake-1.16"
-S["AUTOCONF"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/missing autoconf"
-S["ACLOCAL"]="${SHELL} /home/pi/cgminer-ants3/compat/libusb-1.0/missing aclocal-1.16"
+S["install_sh"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/install-sh"
+S["MAKEINFO"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing makeinfo"
+S["AUTOHEADER"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing autoheader"
+S["AUTOMAKE"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing automake-1.15"
+S["AUTOCONF"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing autoconf"
+S["ACLOCAL"]="${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing aclocal-1.15"
 S["VERSION"]="1.0.16-rc10"
 S["PACKAGE"]="libusb"
 S["CYGPATH_W"]="echo"
@@ -1006,7 +1007,6 @@ S["PACKAGE_TARNAME"]="libusb"
 S["PACKAGE_NAME"]="libusb"
 S["PATH_SEPARATOR"]=":"
 S["SHELL"]="/bin/bash"
-S["am__quote"]=""
 _ACAWK
 cat >>"$ac_tmp/subs1.awk" <<_ACAWK &&
   for (key in S) S_is_set[key] = 1
@@ -1409,35 +1409,29 @@ $as_echo "$as_me: executing $ac_file commands" >&6;}
   # Older Autoconf quotes --file arguments for eval, but not when files
   # are listed without --file.  Let's play safe and only enable the eval
   # if we detect the quoting.
-  # TODO: see whether this extra hack can be removed once we start
-  # requiring Autoconf 2.70 or later.
-  case $CONFIG_FILES in #(
-  *\'*) :
-    eval set x "$CONFIG_FILES" ;; #(
-  *) :
-    set x $CONFIG_FILES ;; #(
-  *) :
-     ;;
-esac
+  case $CONFIG_FILES in
+  *\'*) eval set x "$CONFIG_FILES" ;;
+  *)   set x $CONFIG_FILES ;;
+  esac
   shift
-  # Used to flag and report bootstrapping failures.
-  am_rc=0
-  for am_mf
+  for mf
   do
     # Strip MF so we end up with the name of the file.
-    am_mf=`$as_echo "$am_mf" | sed -e 's/:.*$//'`
-    # Check whether this is an Automake generated Makefile which includes
-    # dependency-tracking related rules and includes.
-    # Grep'ing the whole file directly is not great: AIX grep has a line
+    mf=`echo "$mf" | sed -e 's/:.*$//'`
+    # Check whether this is an Automake generated Makefile or not.
+    # We used to match only the files named 'Makefile.in', but
+    # some people rename them; so instead we look at the file content.
+    # Grep'ing the first line is not enough: some people post-process
+    # each Makefile.in and add a new line on top of each file to say so.
+    # Grep'ing the whole file is not good either: AIX grep has a line
     # limit of 2048, but all sed's we know have understand at least 4000.
-    sed -n 's,^am--depfiles:.*,X,p' "$am_mf" | grep X >/dev/null 2>&1 \
-      || continue
-    am_dirpart=`$as_dirname -- "$am_mf" ||
-$as_expr X"$am_mf" : 'X\(.*[^/]\)//*[^/][^/]*/*$' \| \
-	 X"$am_mf" : 'X\(//\)[^/]' \| \
-	 X"$am_mf" : 'X\(//\)$' \| \
-	 X"$am_mf" : 'X\(/\)' \| . 2>/dev/null ||
-$as_echo X"$am_mf" |
+    if sed -n 's,^#.*generated by automake.*,X,p' "$mf" | grep X >/dev/null 2>&1; then
+      dirpart=`$as_dirname -- "$mf" ||
+$as_expr X"$mf" : 'X\(.*[^/]\)//*[^/][^/]*/*$' \| \
+	 X"$mf" : 'X\(//\)[^/]' \| \
+	 X"$mf" : 'X\(//\)$' \| \
+	 X"$mf" : 'X\(/\)' \| . 2>/dev/null ||
+$as_echo X"$mf" |
     sed '/^X\(.*[^/]\)\/\/*[^/][^/]*\/*$/{
 	    s//\1/
 	    q
@@ -1455,48 +1449,53 @@ $as_echo X"$am_mf" |
 	    q
 	  }
 	  s/.*/./; q'`
-    am_filepart=`$as_basename -- "$am_mf" ||
-$as_expr X/"$am_mf" : '.*/\([^/][^/]*\)/*$' \| \
-	 X"$am_mf" : 'X\(//\)$' \| \
-	 X"$am_mf" : 'X\(/\)' \| . 2>/dev/null ||
-$as_echo X/"$am_mf" |
-    sed '/^.*\/\([^/][^/]*\)\/*$/{
+    else
+      continue
+    fi
+    # Extract the definition of DEPDIR, am__include, and am__quote
+    # from the Makefile without running 'make'.
+    DEPDIR=`sed -n 's/^DEPDIR = //p' < "$mf"`
+    test -z "$DEPDIR" && continue
+    am__include=`sed -n 's/^am__include = //p' < "$mf"`
+    test -z "$am__include" && continue
+    am__quote=`sed -n 's/^am__quote = //p' < "$mf"`
+    # Find all dependency output files, they are included files with
+    # $(DEPDIR) in their names.  We invoke sed twice because it is the
+    # simplest approach to changing $(DEPDIR) to its actual value in the
+    # expansion.
+    for file in `sed -n "
+      s/^$am__include $am__quote\(.*(DEPDIR).*\)$am__quote"'$/\1/p' <"$mf" | \
+	 sed -e 's/\$(DEPDIR)/'"$DEPDIR"'/g'`; do
+      # Make sure the directory exists.
+      test -f "$dirpart/$file" && continue
+      fdir=`$as_dirname -- "$file" ||
+$as_expr X"$file" : 'X\(.*[^/]\)//*[^/][^/]*/*$' \| \
+	 X"$file" : 'X\(//\)[^/]' \| \
+	 X"$file" : 'X\(//\)$' \| \
+	 X"$file" : 'X\(/\)' \| . 2>/dev/null ||
+$as_echo X"$file" |
+    sed '/^X\(.*[^/]\)\/\/*[^/][^/]*\/*$/{
 	    s//\1/
 	    q
 	  }
-	  /^X\/\(\/\/\)$/{
+	  /^X\(\/\/\)[^/].*/{
 	    s//\1/
 	    q
 	  }
-	  /^X\/\(\/\).*/{
+	  /^X\(\/\/\)$/{
+	    s//\1/
+	    q
+	  }
+	  /^X\(\/\).*/{
 	    s//\1/
 	    q
 	  }
 	  s/.*/./; q'`
-    { echo "$as_me:$LINENO: cd "$am_dirpart" \
-      && sed -e '/# am--include-marker/d' "$am_filepart" \
-        | $MAKE -f - am--depfiles" >&5
-   (cd "$am_dirpart" \
-      && sed -e '/# am--include-marker/d' "$am_filepart" \
-        | $MAKE -f - am--depfiles) >&5 2>&5
-   ac_status=$?
-   echo "$as_me:$LINENO: \$? = $ac_status" >&5
-   (exit $ac_status); } || am_rc=$?
+      as_dir=$dirpart/$fdir; as_fn_mkdir_p
+      # echo "creating $dirpart/$file"
+      echo '# dummy' > "$dirpart/$file"
+    done
   done
-  if test $am_rc -ne 0; then
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "Something went wrong bootstrapping makefile fragments
-    for automatic dependency tracking.  Try re-running configure with the
-    '--disable-dependency-tracking' option to at least be able to build
-    the package (albeit without support for automatic dependency tracking).
-See \`config.log' for more details" "$LINENO" 5; }
-  fi
-  { am_dirpart=; unset am_dirpart;}
-  { am_filepart=; unset am_filepart;}
-  { am_mf=; unset am_mf;}
-  { am_rc=; unset am_rc;}
-  rm -f conftest-deps.mk
 }
  ;;
     "libtool":C)
@@ -1514,6 +1513,7 @@ See \`config.log' for more details" "$LINENO" 5; }
     cat <<_LT_EOF >> "$cfgfile"
 #! $SHELL
 # Generated automatically by $as_me ($PACKAGE) $VERSION
+# Libtool was configured on host `(hostname || uname -n) 2>/dev/null | sed 1q`:
 # NOTE: Changes made to this file will be lost: look at ltmain.sh.
 
 # Provide generalized library-building support services.

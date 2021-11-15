@@ -1,29 +1,17 @@
 os/libusb_1_0_la-threads_posix.lo: os/threads_posix.c \
  /usr/include/stdc-predef.h os/threads_posix.h /usr/include/pthread.h \
- /usr/include/features.h /usr/include/arm-linux-gnueabihf/sys/cdefs.h \
- /usr/include/arm-linux-gnueabihf/bits/wordsize.h \
- /usr/include/arm-linux-gnueabihf/bits/long-double.h \
- /usr/include/arm-linux-gnueabihf/gnu/stubs.h \
- /usr/include/arm-linux-gnueabihf/gnu/stubs-hard.h /usr/include/endian.h \
- /usr/include/arm-linux-gnueabihf/bits/endian.h /usr/include/sched.h \
- /usr/include/arm-linux-gnueabihf/bits/types.h \
- /usr/include/arm-linux-gnueabihf/bits/typesizes.h \
- /usr/lib/gcc/arm-linux-gnueabihf/8/include/stddef.h \
- /usr/include/arm-linux-gnueabihf/bits/types/time_t.h \
- /usr/include/arm-linux-gnueabihf/bits/types/struct_timespec.h \
- /usr/include/time.h /usr/include/arm-linux-gnueabihf/bits/time.h \
- /usr/include/arm-linux-gnueabihf/bits/types/clock_t.h \
- /usr/include/arm-linux-gnueabihf/bits/types/struct_tm.h \
- /usr/include/arm-linux-gnueabihf/bits/types/clockid_t.h \
- /usr/include/arm-linux-gnueabihf/bits/types/timer_t.h \
- /usr/include/arm-linux-gnueabihf/bits/types/struct_itimerspec.h \
- /usr/include/arm-linux-gnueabihf/bits/sched.h \
- /usr/include/arm-linux-gnueabihf/bits/types/struct_sched_param.h \
- /usr/include/arm-linux-gnueabihf/bits/cpu-set.h \
- /usr/include/arm-linux-gnueabihf/bits/pthreadtypes.h \
- /usr/include/arm-linux-gnueabihf/bits/thread-shared-types.h \
- /usr/include/arm-linux-gnueabihf/bits/pthreadtypes-arch.h \
- /usr/include/arm-linux-gnueabihf/bits/setjmp.h
+ /usr/include/features.h /usr/include/x86_64-linux-gnu/sys/cdefs.h \
+ /usr/include/x86_64-linux-gnu/bits/wordsize.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs-64.h /usr/include/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/endian.h /usr/include/sched.h \
+ /usr/include/x86_64-linux-gnu/bits/types.h \
+ /usr/include/x86_64-linux-gnu/bits/typesizes.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h /usr/include/time.h \
+ /usr/include/x86_64-linux-gnu/bits/time.h \
+ /usr/include/x86_64-linux-gnu/bits/sched.h \
+ /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
+ /usr/include/x86_64-linux-gnu/bits/setjmp.h
 
 /usr/include/stdc-predef.h:
 
@@ -33,56 +21,32 @@ os/threads_posix.h:
 
 /usr/include/features.h:
 
-/usr/include/arm-linux-gnueabihf/sys/cdefs.h:
+/usr/include/x86_64-linux-gnu/sys/cdefs.h:
 
-/usr/include/arm-linux-gnueabihf/bits/wordsize.h:
+/usr/include/x86_64-linux-gnu/bits/wordsize.h:
 
-/usr/include/arm-linux-gnueabihf/bits/long-double.h:
+/usr/include/x86_64-linux-gnu/gnu/stubs.h:
 
-/usr/include/arm-linux-gnueabihf/gnu/stubs.h:
-
-/usr/include/arm-linux-gnueabihf/gnu/stubs-hard.h:
+/usr/include/x86_64-linux-gnu/gnu/stubs-64.h:
 
 /usr/include/endian.h:
 
-/usr/include/arm-linux-gnueabihf/bits/endian.h:
+/usr/include/x86_64-linux-gnu/bits/endian.h:
 
 /usr/include/sched.h:
 
-/usr/include/arm-linux-gnueabihf/bits/types.h:
+/usr/include/x86_64-linux-gnu/bits/types.h:
 
-/usr/include/arm-linux-gnueabihf/bits/typesizes.h:
+/usr/include/x86_64-linux-gnu/bits/typesizes.h:
 
-/usr/lib/gcc/arm-linux-gnueabihf/8/include/stddef.h:
-
-/usr/include/arm-linux-gnueabihf/bits/types/time_t.h:
-
-/usr/include/arm-linux-gnueabihf/bits/types/struct_timespec.h:
+/usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h:
 
 /usr/include/time.h:
 
-/usr/include/arm-linux-gnueabihf/bits/time.h:
+/usr/include/x86_64-linux-gnu/bits/time.h:
 
-/usr/include/arm-linux-gnueabihf/bits/types/clock_t.h:
+/usr/include/x86_64-linux-gnu/bits/sched.h:
 
-/usr/include/arm-linux-gnueabihf/bits/types/struct_tm.h:
+/usr/include/x86_64-linux-gnu/bits/pthreadtypes.h:
 
-/usr/include/arm-linux-gnueabihf/bits/types/clockid_t.h:
-
-/usr/include/arm-linux-gnueabihf/bits/types/timer_t.h:
-
-/usr/include/arm-linux-gnueabihf/bits/types/struct_itimerspec.h:
-
-/usr/include/arm-linux-gnueabihf/bits/sched.h:
-
-/usr/include/arm-linux-gnueabihf/bits/types/struct_sched_param.h:
-
-/usr/include/arm-linux-gnueabihf/bits/cpu-set.h:
-
-/usr/include/arm-linux-gnueabihf/bits/pthreadtypes.h:
-
-/usr/include/arm-linux-gnueabihf/bits/thread-shared-types.h:
-
-/usr/include/arm-linux-gnueabihf/bits/pthreadtypes-arch.h:
-
-/usr/include/arm-linux-gnueabihf/bits/setjmp.h:
+/usr/include/x86_64-linux-gnu/bits/setjmp.h:

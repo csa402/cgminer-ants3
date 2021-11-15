@@ -29,6 +29,22 @@
 #define FTDI_REQUEST_BAUD ((uint8_t)3)
 #define FTDI_REQUEST_DATA ((uint8_t)4)
 #define FTDI_REQUEST_LATENCY ((uint8_t)9)
+#define FTDI_REQUEST_BITMODE ((uint8_t)11)
+
+#define FTDI_BITMODE_RESET   ((uint8_t)0x00)
+#define FTDI_BITMODE_BITBANG ((uint8_t)0x01)
+#define FTDI_BITMODE_MPSSE   ((uint8_t)0x02)
+#define FTDI_BITMODE_SYNCBB  ((uint8_t)0x04)
+#define FTDI_BITMODE_MCU     ((uint8_t)0x08)
+#define FTDI_BITMODE_OPTO    ((uint8_t)0x10)
+#define FTDI_BITMODE_CBUS    ((uint8_t)0x20)
+#define FTDI_BITMODE_SYNCFF  ((uint8_t)0x40)
+#define FTDI_BITMODE_FT1284  ((uint8_t)0x80)
+
+#define FTDI_SETDTR_LOW  0x0100
+#define FTDI_SETDTR_HIGH 0x0101
+#define FTDI_SETRTS_LOW  0x0200
+#define FTDI_SETRTS_HIGH 0x0202
 
 #define FTDI_VALUE_RESET 0
 #define FTDI_VALUE_PURGE_RX 1
@@ -63,6 +79,11 @@
 
 #define FTDI_VALUE_BAUD_CMR_57 0x80d0
 #define FTDI_INDEX_BAUD_CMR_57 0x0200
+
+// FTDI
+#define FTDI_VALUE_DATA_BTS 8
+#define FTDI_VALUE_BAUD_BTS 0x001A
+#define FTDI_INDEX_BAUD_BTS 0x0000
 
 // Data control
 #define FTDI_VALUE_DATA_BFL 0
@@ -162,6 +183,8 @@ enum sub_ident {
 	IDENT_BLT,
 	IDENT_BMA,
 	IDENT_BSC,
+	IDENT_BSD,
+	IDENT_BSE,
 	IDENT_BTB,
 	IDENT_BXF,
 	IDENT_BXM,
@@ -170,6 +193,11 @@ enum sub_ident {
 	IDENT_CTA,
 	IDENT_DRB,
 	IDENT_GSC,
+	IDENT_GSD,
+	IDENT_GSE,
+	IDENT_GSH,
+	IDENT_GSI,
+	IDENT_GSF,
 	IDENT_HFA,
 	IDENT_HRO,
 	IDENT_ICA,
