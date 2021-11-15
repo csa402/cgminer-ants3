@@ -1,10 +1,10 @@
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [4])
-m4_define([v_min], [11])
-m4_define([v_mic], [1])
+m4_define([v_min], [12])
+m4_define([v_mic], [0])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
-m4_define([v_ver], [v_maj.v_min.v_mic-xnsub-mod4])
+m4_define([v_ver], [v_maj.v_min.v_mic-wrk])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
 m4_define([lt_cur], v_mic)
 m4_define([lt_age], v_min)
