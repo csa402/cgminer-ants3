@@ -68,13 +68,6 @@ struct opt_table;
 	{ (name), OPT_CB_ARG((cb), (show), (arg)), { (arg) }, (desc) }
 
 /**
- * OPT_WITH_CBARG() - variant of OPT_WITH_ARG which assigns arguments to arg
- * and then performs the callback function on the args as well.
- */
-#define OPT_WITH_CBARG(name, cb, show, arg, desc)	\
-	{ (name), OPT_CB_WITHARG((cb), (show), (arg)), { (arg) }, (desc) }
-
-/**
  * OPT_SUBTABLE() - macro for including another table inside a table.
  * @table: the table to include in this table.
  * @desc: description of this subtable (for opt_usage()) or NULL.
@@ -263,8 +256,6 @@ extern const char opt_hidden[];
 /* Standard helpers.  You can write your own: */
 /* Sets the @b to true. */
 char *opt_set_bool(bool *b);
-/* Sets the @b to false. */
-char *opt_set_false(bool *b);
 /* Sets @b based on arg: (yes/no/true/false). */
 char *opt_set_bool_arg(const char *arg, bool *b);
 void opt_show_bool(char buf[OPT_SHOW_LEN], const bool *b);
@@ -305,9 +296,8 @@ char *opt_usage_and_exit(const char *extra);
 enum opt_type {
 	OPT_NOARG = 1,		/* -f|--foo */
 	OPT_HASARG = 2,		/* -f arg|--foo=arg|--foo arg */
-	OPT_PROCESSARG = 4,
-	OPT_SUBTABLE = 8,	/* Actually, longopt points to a subtable... */
-	OPT_END = 16,		/* End of the table. */
+	OPT_SUBTABLE = 4,	/* Actually, longopt points to a subtable... */
+	OPT_END = 8,		/* End of the table. */
 };
 
 struct opt_table {
@@ -336,16 +326,6 @@ struct opt_table {
 /* Resolves to the four parameters for arg callbacks. */
 #define OPT_CB_ARG(cb, show, arg)					\
 	OPT_HASARG, NULL,						\
-	typesafe_cb_cast3(char *(*)(const char *,void *),	\
-			  char *(*)(const char *, typeof(*(arg))*),	\
-			  char *(*)(const char *, const typeof(*(arg))*), \
-			  char *(*)(const char *, const void *),	\
-			  (cb)),					\
-	typesafe_cb_cast(void (*)(char buf[], const void *),		\
-			 void (*)(char buf[], const typeof(*(arg))*), (show))
-
-#define OPT_CB_WITHARG(cb, show, arg)					\
-	OPT_PROCESSARG, NULL,						\
 	typesafe_cb_cast3(char *(*)(const char *,void *),	\
 			  char *(*)(const char *, typeof(*(arg))*),	\
 			  char *(*)(const char *, const typeof(*(arg))*), \
