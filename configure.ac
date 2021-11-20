@@ -46,14 +46,14 @@ dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
-#CFLAGS+=" -std=gnu11"
+CFLAGS+=" -std=gnu11"
 AC_PROG_CC
 gl_EARLY
 AC_PROG_GCC_TRADITIONAL
 AM_PROG_CC_C_O
 
 # This breaks autoreconf so disable it
- LT_INIT([disable-shared])
+# LT_INIT([disable-shared])
 
 gl_INIT
 
@@ -65,7 +65,7 @@ AC_FUNC_ALLOCA
 
 have_win32=false
 PTHREAD_FLAGS="-lpthread"
-##LIBZ_LIBS="-lz"
+LIBZ_LIBS="-lz"
 DLOPEN_FLAGS="-ldl"
 WS2_LIBS=""
 MM_LIBS=""
@@ -84,7 +84,7 @@ case $target in
     ;;
 esac
 
-CFLAGS="$CFLAGS -Wimplicit-fallthrough=0"
+#CFLAGS="$CFLAGS -Wimplicit-fallthrough=0"
 #^ causes problem on gcc 4.9 - pass in from CFLAG if needed
 
 #add CFLAGS "-fcommon" otherwise cause issue compilation on gcc 10.x (raspberry BullEyes)
@@ -360,7 +360,6 @@ if test "x$bitmain_soc" = xyes; then
     fi
 	drivercount=x$drivercount
 	standalone="yes"
-	LIBZ_LIBS="-lz"
 fi
 AM_CONDITIONAL([HAS_BITMAIN_SOC], [test x$bitmain_soc = xyes])
 
