@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2014 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2013 Con Kolivas <kernel@kolivas.org>
  * Copyright 2013 Andrew Smith
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -60,7 +60,6 @@ enum driver_version {
 #define BFLSC_DI_CHAINPRESENCE "CHAIN PRESENCE MASK"
 #define BFLSC_DI_CHIPS "CHIP PARALLELIZATION"
 #define BFLSC_DI_CHIPS_PARALLEL "YES"
-#define BFLSC28_DI_ASICS "ASIC Installed"
 
 #define FULLNONCE 0x100000000ULL
 
@@ -117,14 +116,7 @@ struct bflsc_dev {
 
 #define QUE_MAX_RESULTS 8
 
-struct bflsc_work {
-	UT_hash_handle hh;
-	int id;
-	struct work *work;
-};
-
 struct bflsc_info {
-	enum sub_ident ident;
 	enum driver_version driver_version;
 	pthread_rwlock_t stat_lock;
 	struct thr_info results_thr;
@@ -147,20 +139,11 @@ struct bflsc_info {
 	int que_noncecount;
 	int que_fld_min;
 	int que_fld_max;
-	uint64_t core_nonces[17];
-	uint64_t core_hw[17];
+	int core_nonces[17];
+	int core_hw[17];
 	int flush_size;
 	// count of given size, [+2] is for any > QUE_MAX_RESULTS
 	uint64_t result_size[QUE_MAX_RESULTS+2];
-
-	struct bflsc_work *bworks;
-	uint64_t cortex_nonces[0x80];
-	uint64_t cortex_hw[0x80];
-
-	int volt_next;
-	bool volt_next_stat;
-	int clock_next;
-	bool clock_next_stat;
 };
 
 #define BFLSC_XLINKHDR '@'
@@ -191,9 +174,6 @@ struct QueueJobStructure {
 #define QUE_RES_LINES_MIN 3
 #define QUE_MIDSTATE 0
 #define QUE_BLOCKDATA 1
-
-#define QUE_UID 0
-#define QUE_CC 1
 
 #define QUE_NONCECOUNT_V1 2
 #define QUE_FLD_MIN_V1 3
@@ -267,7 +247,6 @@ struct SaveString {
 // Replies
 #define BFLSC_IDENTITY "BitFORCE SC"
 #define BFLSC_BFLSC "SHA256 SC"
-#define BFLSC_BFLSC28 "SC-28nm"
 
 #define BFLSC_OK "OK\n"
 #define BFLSC_OK_LEN (sizeof(BFLSC_OK)-1)
@@ -328,7 +307,6 @@ struct SaveString {
 #define BFLSC_SINGLE "BAS"
 #define BFLSC_LITTLESINGLE "BAL"
 #define BFLSC_JALAPENO "BAJ"
-#define BFLSC_MONARCH "BMA"
 
 // Default expected time for a nonce range
 // - thus no need to check until this + last time work was found
@@ -339,18 +317,15 @@ struct SaveString {
 #define BAL_WORK_TIME 143.17
 // 4.5GH/s Jalapeno
 #define BAJ_WORK_TIME 954.44
-#define BMA_WORK_TIME 35 // ???
 
 // Defaults (slightly over half the work time) but ensure none are above 100
 // SCAN_TIME - delay after sending work
 // RES_TIME - delay between checking for results
 #define BAM_SCAN_TIME 20
-#define BMA_SCAN_TIME 50
 #define BAS_SCAN_TIME 360
 #define BAL_SCAN_TIME 720
 #define BAJ_SCAN_TIME 1000
 #define BFLSC_RES_TIME 100
-#define BMA_RES_TIME 50
 #define BFLSC_MAX_SLEEP 2000
 
 #define BAJ_LATENCY LATENCY_STD
@@ -387,6 +362,6 @@ struct SaveString {
 // Keep trying up to this many us
 #define REINIT_TIME_MAX 3000000
 
-extern int opt_bflsc_overheat;
+int opt_bflsc_overheat;
 
 #endif /* BFLSC_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2014 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2013 Con Kolivas <kernel@kolivas.org>
  * Copyright 2013 Hashfast
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,40 +16,12 @@
 #include "elist.h"
 #include "hf_protocol.h"
 
-extern int opt_hfa_ntime_roll;
-extern int opt_hfa_hash_clock;
-extern int opt_hfa_overheat;
-extern int opt_hfa_target;
-extern bool opt_hfa_pll_bypass;
-extern bool opt_hfa_dfu_boot;
-extern int opt_hfa_fan_default;
-extern int opt_hfa_fan_max;
-extern int opt_hfa_fan_min;
-extern int opt_hfa_fail_drop;
-extern bool opt_hfa_noshed;
-
-extern char *set_hfa_fan(char *arg);
-extern char *opt_hfa_name;
-extern char *opt_hfa_options;
+int opt_hfa_ntime_roll;
+int opt_hfa_hash_clock;
+bool opt_hfa_pll_bypass;
+bool opt_hfa_dfu_boot;
 
 #define HASHFAST_MINER_THREADS 1
-#define HFA_CLOCK_DEFAULT 550
-#define HFA_CLOCK_MIN 125
-#define HFA_CLOCK_MAX 1000
-#define HFA_CLOCK_MAXDIFF 100
-#define HFA_TEMP_OVERHEAT 95
-#define HFA_TEMP_TARGET 88
-#define HFA_TEMP_HYSTERESIS 3
-#define HFA_FAN_DEFAULT 33
-#define HFA_FAN_MAX 85
-#define HFA_FAN_MIN 5
-#define HFA_VOLTAGE_MAX 1000
-#define HFA_VOLTAGE_MIN 500
-#define HFA_MAGIC_SETTINGS_VALUE 0x42AA
-
-// # Factory Operation Codes
-#define OP_SETTINGS             55      // Read or write settings
-#define OP_POWER                57
 
 // Matching fields for hf_statistics, but large #s for local accumulation, per-die
 struct hf_long_statistics {
@@ -98,17 +70,7 @@ struct hf_long_usb_stats1 {
 	uint8_t  max_rx_buffers;
 };
 
-/* Private per die data for dynamic clocking */
-struct hf_die_data {
-	int hash_clock;
-	double temp;
-	double board_temp;
-	time_t last_restart;
-};
-
 struct hashfast_info {
-	struct cgpu_info *cgpu;                     // Points back to parent structure
-	struct cgpu_info *old_cgpu  ;               // Points to old structure if hotplugged same device
 	int asic_count;                             // # of chips in the chain
 	int core_count;                             // # of cores per chip
 	int device_type;                            // What sort of device this is
@@ -117,46 +79,25 @@ struct hashfast_info {
 	struct hf_g1_die_data *die_status;          // Array of per-die voltage, current, temperature sensor data
 	struct hf_long_statistics *die_statistics;  // Array of per-die error counters
 	struct hf_long_usb_stats1 stats1;
-	struct hf_die_data *die_data;
-	double firmware_version;
-	double hardware_version;
 	int hash_clock_rate;                        // Hash clock rate to use, in Mhz
-	int base_clock;                             // Clock rate we actually got
 	struct hf_usb_init_base usb_init_base;      // USB Base information from USB_INIT
 	struct hf_config_data config_data;          // Configuration data used from USB_INIT
 	int core_bitmap_size;                       // in bytes
 	uint32_t *core_bitmap;                      // Core OK bitmap test results, run with PLL Bypassed
 	int group_ntime_roll;                       // Total ntime roll amount per group
 	int core_ntime_roll;                        // Total core ntime roll amount
-	uint32_t serial_number;                     // db->serial_number if it exists
-	char op_name[36];
-	bool has_opname;
-	bool opname_valid;
 
 	pthread_mutex_t lock;
-	pthread_mutex_t rlock;
 	struct work **works;
 	uint16_t hash_sequence_head;                // HOST:   The next hash sequence # to be sent
 	uint16_t hash_sequence_tail;                // HOST:   Follows device_sequence_tail around to free work
 	uint16_t device_sequence_head;              // DEVICE: The most recent sequence number the device dispatched
 	uint16_t device_sequence_tail;              // DEVICE: The most recently completed job in the device
 	int64_t hash_count;
-	uint64_t raw_hashes;
-	uint64_t calc_hashes;
 	uint16_t shed_count;                        // Dynamic copy of #cores device has shed for thermal control
 	int no_matching_work;
-	int resets;
-	int overheat;
-	int last_max_temp;
-	int temp_updates;
-	int fanspeed;                               // Fanspeed in percent
-	int last_die_adjusted;
-	int clock_offset;
-	int hash_voltage;                           // Hash voltage to use, in mV
 
 	pthread_t read_thr;
-	time_t last_restart;
-	time_t last_send;
 };
 
 #endif /* USE_HASHFAST */

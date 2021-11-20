@@ -54,7 +54,7 @@ void _applog(int prio, const char *str, bool force)
 {
 #ifdef HAVE_SYSLOG_H
 	if (use_syslog) {
-		syslog(LOG_LOCAL0 | prio, "%s", str);
+		syslog(prio, "%s", str);
 	}
 #else
 	if (0) {}
@@ -63,22 +63,19 @@ void _applog(int prio, const char *str, bool force)
 		char datetime[64];
 		struct timeval tv = {0, 0};
 		struct tm *tm;
-#ifdef USE_GEKKO
-		cgtime_real(&tv);
-#else
+
 		cgtime(&tv);
-#endif
+
 		const time_t tmp_time = tv.tv_sec;
-		int ms = (int)(tv.tv_usec / 1000);
 		tm = localtime(&tmp_time);
 
-		snprintf(datetime, sizeof(datetime), " [%d-%02d-%02d %02d:%02d:%02d.%03d] ",
+		snprintf(datetime, sizeof(datetime), " [%d-%02d-%02d %02d:%02d:%02d] ",
 			tm->tm_year + 1900,
 			tm->tm_mon + 1,
 			tm->tm_mday,
 			tm->tm_hour,
 			tm->tm_min,
-			tm->tm_sec, ms);
+			tm->tm_sec);
 
 		/* Only output to stderr if it's not going to the screen as well */
 		if (!isatty(fileno((FILE *)stderr))) {
@@ -87,25 +84,5 @@ void _applog(int prio, const char *str, bool force)
 		}
 
 		my_log_curses(prio, datetime, str, force);
-	}
-}
-
-void _simplelog(int prio, const char *str, bool force)
-{
-#ifdef HAVE_SYSLOG_H
-	if (use_syslog) {
-		syslog(LOG_LOCAL0 | prio, "%s", str);
-	}
-#else
-	if (0) {}
-#endif
-	else {
-		/* Only output to stderr if it's not going to the screen as well */
-		if (!isatty(fileno((FILE *)stderr))) {
-			fprintf(stderr, "%s\n", str);	/* atomic write to stderr */
-			fflush(stderr);
-		}
-
-		my_log_curses(prio, "", str, force);
 	}
 }

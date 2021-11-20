@@ -24,6 +24,10 @@
 #include "usbutils.h"
 #include "util.h"
 
+#ifdef WIN32
+#include <windows.h>
+#endif /* WIN32 */
+
 #define BITFORCE_IDENTIFY "ZGX"
 #define BITFORCE_IDENTIFY_LEN (sizeof(BITFORCE_IDENTIFY)-1)
 #define BITFORCE_FLASH "ZMX"
@@ -294,7 +298,11 @@ static void get_bitforce_statline_before(char *buf, size_t bufsiz, struct cgpu_i
 	float gt = bitforce->temp;
 
 	if (gt > 0)
-		tailsprintf(buf, bufsiz, "%5.1fC", gt);
+		tailsprintf(buf, bufsiz, "%5.1fC ", gt);
+	else
+		tailsprintf(buf, bufsiz, "       ");
+
+	tailsprintf(buf, bufsiz, "        | ");
 }
 
 static bool bitforce_thread_prepare(__maybe_unused struct thr_info *thr)
