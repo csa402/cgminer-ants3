@@ -67,8 +67,7 @@ static clock_serv_t clock_realtime;
 static clock_serv_t clock_monotonic;
 
 static CFRunLoopRef libusb_darwin_acfl = NULL; /* event cf loop */
-
-ATOMIC_COUNTER(initCount, 0);
+static volatile int32_t initCount = 0;
 
 /* async event thread */
 static pthread_t libusb_darwin_at;
