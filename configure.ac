@@ -1,8 +1,8 @@
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [4])
-m4_define([v_min], [11])
-m4_define([v_mic], [1-kno])
+m4_define([v_min], [12])
+m4_define([v_mic], [0-wrk])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_ver], [v_maj.v_min.v_mic])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
@@ -46,6 +46,7 @@ dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
+CFLAGS+=" -std=gnu11"
 AC_PROG_CC
 gl_EARLY
 AC_PROG_GCC_TRADITIONAL
@@ -83,8 +84,11 @@ case $target in
     ;;
 esac
 
-#CFLAGS="$CFLAGS -Wimplicit-fallthrough=0"
+CFLAGS="$CFLAGS -Wimplicit-fallthrough=0"
 #^ causes problem on gcc 4.9 - pass in from CFLAG if needed
+
+#add CFLAGS "-fcommon" otherwise cause issue compilation on gcc 10.x (raspberry BullEyes)
+##CFLAGS+=" -std=gnu11 -fcommon"
 
 case $target in
   *-*-linux-gnu*)
@@ -356,6 +360,7 @@ if test "x$bitmain_soc" = xyes; then
     fi
 	drivercount=x$drivercount
 	standalone="yes"
+	LIBZ_LIBS="-lz"
 fi
 AM_CONDITIONAL([HAS_BITMAIN_SOC], [test x$bitmain_soc = xyes])
 
@@ -385,19 +390,6 @@ if test "x$blockerupter" = xyes; then
 fi
 AM_CONDITIONAL([HAS_BLOCKERUPTER], [test x$blockerupter = xyes])
 
-
-gekko="no"
-
-AC_ARG_ENABLE([gekko],
-	[AC_HELP_STRING([--enable-gekko],[Compile support for GekkoScience (default disabled)])],
-	[gekko=$enableval]
-	)
-if test "x$gekko" = xyes; then
-	AC_DEFINE([USE_GEKKO], [1], [Defined to 1 if GekkoScience support is wanted])
-	AC_DEFINE([USE_VMASK], [1], [Defined to 1 if version mask rolling is wanted])
-	drivercount=x$drivercount
-fi
-AM_CONDITIONAL([HAS_GEKKO], [test x$gekko = xyes])
 
 cointerra="no"
 
@@ -439,6 +431,18 @@ if test "x$drillbit" = xyes; then
 fi
 AM_CONDITIONAL([HAS_DRILLBIT], [test x$drillbit = xyes])
 
+gekko="no"
+
+AC_ARG_ENABLE([gekko],
+        [AC_HELP_STRING([--disable-gekko],[Compile support for GekkoScience (default enabled)])],
+        [gekko=$enableval]
+        )
+if test "x$gekko" = xyes; then
+        AC_DEFINE([USE_GEKKO], [1], [Defined to 1 if GekkoScience support is wanted])
+        AC_DEFINE([USE_VMASK], [1], [Defined to 1 if version mask rolling is wanted])
+        drivercount=x$drivercount
+fi
+AM_CONDITIONAL([HAS_GEKKO], [test x$gekko = xyes])
 
 hashfast="no"
 
@@ -581,9 +585,9 @@ AC_ARG_WITH([curses],
 if test "x$curses" = "xno"; then
 	cursesmsg='User specified --without-curses. TUI support DISABLED'
 else
-	AC_SEARCH_LIBS(addstr, pdcurses ncurses pdcurses, [
+	AC_SEARCH_LIBS(setupterm, pdcurses ncurses pdcurses, [
 		curses=yes
-		cursesmsg="FOUND: ${ac_cv_search_addstr}"
+		cursesmsg="FOUND: ${ac_cv_search_setupterm}"
 		AC_DEFINE([HAVE_CURSES], [1], [Defined to 1 if curses TUI support is wanted])
 	], [
 		if test "x$curses" = "xyes"; then
@@ -842,13 +846,7 @@ fi
 
 echo "  curses.TUI...........: $cursesmsg"
 
-
 echo
-if test "x$dragonmint_t1" = xyes; then
-	echo "  DragonMint.T1.Halong.: Enabled"
-else
-        echo "  DragonMint.T1.Halong.: Disabled"
-fi
 
 if test "x$ants1" = xyes; then
 	echo "  Antminer.S1.Bitmain..: Enabled"
@@ -946,36 +944,16 @@ else
 	echo "  Bitmain.ASICs........: Disabled"
 fi
 
-
 if test "x$blockerupter" = xyes; then
 	echo "  BlockErupter.ASICs...: Enabled"
 else
 	echo "  BlockErupter.ASICs...: Disabled"
 fi
 
-if test "x$gekko" = xyes; then
-	echo "  GekkoScience.ASICs...: Enabled"
-else
-	echo "  GekkoScience.ASICs...: Disabled"
-fi
-
 if test "x$cointerra" = xyes; then
 	echo "  Cointerra.ASICs......: Enabled"
 else
 	echo "  Cointerra.ASICs......: Disabled"
-fi
-
-if test "x$sp10" = xyes; then
-	echo "  Spond-sp10.ASICs.....: Enabled"
-else
-	echo "  Spond-sp10.ASICs.....: Disabled"
-fi
-
-
-if test "x$sp30" = xyes; then
-	echo "  Spond-sp30.ASICs.....: Enabled"
-else
-	echo "  Spond-sp30.ASICs.....: Disabled"
 fi
 
 if test "x$bitmine_A1" = xyes; then
@@ -994,6 +972,12 @@ if test "x$drillbit" = xyes; then
 	echo "  Drillbit.BitFury.....: Enabled"
 else
 	echo "  Drillbit.BitFury.....: Disabled"
+fi
+
+if test "x$gekko" = xyes; then
+        echo "  GekkoScience.ASICs...: Enabled"
+else
+        echo "  GekkoScience.ASICs...: Disabled"
 fi
 
 if test "x$hashfast" = xyes; then
@@ -1032,8 +1016,21 @@ else
 	echo "  ModMiner.FPGAs.......: Disabled"
 fi
 
+if test "x$sp10" = xyes; then
+        echo "  Spond-sp10.ASICs.....: Enabled"
+else
+        echo "  Spond-sp10.ASICs.....: Disabled"
+fi
+
+if test "x$sp30" = xyes; then
+        echo "  Spond-sp30.ASICs.....: Enabled"
+else
+        echo "  Spond-sp30.ASICs.....: Disabled"
+fi
+
+
 #Add any new device to this, along with a no on the end of the test
-if test "x$avalon$avalon2$avalon4$avalon7$avalon8$avalon_miner$bab$bflsc$bitforce$bitfury$bitfury16$bitmain_soc$gekko$blockerupter$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30$dragonmint_t1" = xnonononononononnoononononononononononononononononononnoonono; then
+if test "x$avalon$avalon2$avalon4$avalon7$avalon8$avalon_miner$bab$bflsc$bitforce$bitfury$bitfury16$bitmain_soc$blockerupter$gekko$hashfast$hashratio$icarus$klondike$knc$modminer$drillbit$minion$cointerra$bitmine_A1$ants1$ants2$ants3$sp10$sp30$dragonmint_t1" = xnonononononononononononononononononononononononononononono; then
 	echo
 	AC_MSG_ERROR([No mining devices configured in])
 	echo
