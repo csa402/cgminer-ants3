@@ -65,7 +65,7 @@ AC_FUNC_ALLOCA
 
 have_win32=false
 PTHREAD_FLAGS="-lpthread"
-LIBZ_LIBS="-lz"
+##LIBZ_LIBS="-lz"
 DLOPEN_FLAGS="-ldl"
 WS2_LIBS=""
 MM_LIBS=""
@@ -360,6 +360,7 @@ if test "x$bitmain_soc" = xyes; then
     fi
 	drivercount=x$drivercount
 	standalone="yes"
+	LIBZ_LIBS="-lz"
 fi
 AM_CONDITIONAL([HAS_BITMAIN_SOC], [test x$bitmain_soc = xyes])
 
