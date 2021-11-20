@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2013-2015 Con Kolivas <kernel@kolivas.org>
  * Copyright 2012-2013 Xiangfu <xiangfu@openmobilefree.com>
  * Copyright 2012 Luke Dashjr
  * Copyright 2012 Andrew Smith
@@ -31,7 +31,6 @@
   #endif
 #else
   #include "compat.h"
-  #include <windows.h>
   #include <io.h>
 #endif
 
@@ -288,13 +287,6 @@ static void wait_avalon_ready(struct cgpu_info *avalon)
 	while (avalon_buffer_full(avalon)) {
 		cgsleep_ms(40);
 	}
-}
-
-#define AVALON_CTS    (1 << 4)
-
-static inline bool avalon_cts(char c)
-{
-	return (c & AVALON_CTS);
 }
 
 static int avalon_read(struct cgpu_info *avalon, char *buf, size_t bufsize, int ep)
@@ -843,7 +835,6 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 	}
 
 	info->fan_pwm = AVALON_DEFAULT_FAN_MIN_PWM;
-	info->temp_max = 0;
 	/* This is for check the temp/fan every 3~4s */
 	info->temp_history_count =
 		(4 / (float)((float)info->timeout * (AVALON_A3256 / info->asic) * ((float)1.67/0x32))) + 1;
@@ -1012,9 +1003,9 @@ static void *avalon_get_results(void *userdata)
 	char readbuf[AVALON_READBUF_SIZE];
 	struct thr_info *thr = info->thr;
 	int offset = 0, ret = 0;
-	char threadname[24];
+	char threadname[16];
 
-	snprintf(threadname, 24, "ava_recv/%d", avalon->device_id);
+	snprintf(threadname, sizeof(threadname), "%d/AvaRecv", avalon->device_id);
 	RenameThread(threadname);
 
 	while (likely(!avalon->shutdown)) {
@@ -1147,9 +1138,9 @@ static void *avalon_send_tasks(void *userdata)
 	struct cgpu_info *avalon = (struct cgpu_info *)userdata;
 	struct avalon_info *info = avalon->device_data;
 	const int avalon_get_work_count = info->miner_count;
-	char threadname[24];
+	char threadname[16];
 
-	snprintf(threadname, 24, "ava_send/%d", avalon->device_id);
+	snprintf(threadname, sizeof(threadname), "%d/AvaSend", avalon->device_id);
 	RenameThread(threadname);
 
 	while (likely(!avalon->shutdown)) {
@@ -1236,9 +1227,9 @@ static void *bitburner_send_tasks(void *userdata)
 	struct cgpu_info *avalon = (struct cgpu_info *)userdata;
 	struct avalon_info *info = avalon->device_data;
 	const int avalon_get_work_count = info->miner_count;
-	char threadname[24];
+	char threadname[16];
 
-	snprintf(threadname, 24, "ava_send/%d", avalon->device_id);
+	snprintf(threadname, sizeof(threadname), "%d/AvaSend", avalon->device_id);
 	RenameThread(threadname);
 
 	while (likely(!avalon->shutdown)) {
@@ -1344,8 +1335,11 @@ static bool avalon_prepare(struct thr_info *thr)
 	return true;
 }
 
-static inline void record_temp_fan(struct avalon_info *info, struct avalon_result *ar, float *temp_avg)
+static inline void record_temp_fan(struct cgpu_info *avalon, struct avalon_info *info,
+				   struct avalon_result *ar)
 {
+	double temp_max;
+
 	info->fan0 = ar->fan0 * AVALON_FAN_FACTOR;
 	info->fan1 = ar->fan1 * AVALON_FAN_FACTOR;
 	info->fan2 = ar->fan2 * AVALON_FAN_FACTOR;
@@ -1366,14 +1360,12 @@ static inline void record_temp_fan(struct avalon_info *info, struct avalon_resul
 		info->temp2 = 0 - ((~ar->temp2 & 0x7f) + 1);
 	}
 
-	*temp_avg = info->temp2 > info->temp1 ? info->temp2 : info->temp1;
-
-	if (info->temp0 > info->temp_max)
-		info->temp_max = info->temp0;
-	if (info->temp1 > info->temp_max)
-		info->temp_max = info->temp1;
-	if (info->temp2 > info->temp_max)
-		info->temp_max = info->temp2;
+	temp_max = info->temp0;
+	if (info->temp1 > temp_max)
+		temp_max = info->temp1;
+	if (info->temp2 > temp_max)
+		temp_max = info->temp2;
+	avalon->temp = avalon->temp * 0.63 + temp_max * 0.37;
 }
 
 static void temp_rise(struct avalon_info *info, int temp)
@@ -1439,12 +1431,12 @@ static inline void adjust_fan(struct avalon_info *info)
 static void avalon_update_temps(struct cgpu_info *avalon, struct avalon_info *info,
 				struct avalon_result *ar)
 {
-	record_temp_fan(info, ar, &(avalon->temp));
+	record_temp_fan(avalon, info, ar);
 	applog(LOG_INFO,
 		"Avalon: Fan1: %d/m, Fan2: %d/m, Fan3: %d/m\t"
-		"Temp1: %dC, Temp2: %dC, Temp3: %dC, TempMAX: %dC",
+		"Temp1: %dC, Temp2: %dC, Temp3: %dC, TempMAX: %.0fC",
 		info->fan0, info->fan1, info->fan2,
-		info->temp0, info->temp1, info->temp2, info->temp_max);
+		info->temp0, info->temp1, info->temp2, avalon->temp);
 	info->temp_history_index++;
 	info->temp_sum += avalon->temp;
 	applog(LOG_DEBUG, "Avalon: temp_index: %d, temp_count: %d, temp_old: %d",
@@ -1479,7 +1471,7 @@ static void get_avalon_statline_before(char *buf, size_t bufsiz, struct cgpu_inf
 			temp = 99;
 		if (temp < 0)
 			temp = 0;
-		tailsprintf(buf, bufsiz, "%2dC %3d %4dmV | ", temp, info->frequency, info->core_voltage);
+		tailsprintf(buf, bufsiz, "%2dC %3dMHz %4dmV", temp, info->frequency, info->core_voltage);
 	} else {
 		/* Find the lowest fan speed of the ASIC cooling fans. */
 		if (info->fan1 >= 0 && info->fan1 < lowfan)
@@ -1487,7 +1479,7 @@ static void get_avalon_statline_before(char *buf, size_t bufsiz, struct cgpu_inf
 		if (info->fan2 >= 0 && info->fan2 < lowfan)
 			lowfan = info->fan2;
 
-		tailsprintf(buf, bufsiz, "%2dC/%3dC %04dR | ", info->temp0, info->temp2, lowfan);
+		tailsprintf(buf, bufsiz, "%2dC/%3dC %04dR", info->temp0, info->temp2, lowfan);
 	}
 }
 
@@ -1603,7 +1595,7 @@ static struct api_data *avalon_api_stats(struct cgpu_info *cgpu)
 	root = api_add_int(root, "temp1", &(info->temp0), false);
 	root = api_add_int(root, "temp2", &(info->temp1), false);
 	root = api_add_int(root, "temp3", &(info->temp2), false);
-	root = api_add_int(root, "temp_max", &(info->temp_max), false);
+	root = api_add_double(root, "temp_max", &cgpu->temp, false);
 
 	root = api_add_percent(root, "Device Hardware%", &hwp, true);
 	root = api_add_int(root, "no_matching_work", &(info->no_matching_work), false);
@@ -1704,10 +1696,12 @@ struct device_drv avalon_drv = {
 	.name = "AVA",
 	.drv_detect = avalon_detect,
 	.thread_prepare = avalon_prepare,
+
 	.hash_work = hash_queued_work,
 	.queue_full = avalon_fill,
 	.scanwork = avalon_scanhash,
 	.flush_work = avalon_flush_work,
+
 	.get_api_stats = avalon_api_stats,
 	.get_statline_before = get_avalon_statline_before,
 	.set_device = avalon_set_device,

@@ -1,5 +1,6 @@
 /*
- * Copyright 2011-2013 Con Kolivas
+ * Copyright 2011-2018 Con Kolivas
+ * Copyright 2011-2015 Andrew Smith
  * Copyright 2010 Jeff Garzik
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -33,11 +34,11 @@
 # include <netinet/tcp.h>
 # include <netdb.h>
 #else
-# include <windows.h>
 # include <winsock2.h>
 # include <ws2tcpip.h>
 # include <mmsystem.h>
 #endif
+#include <sched.h>
 
 #include "miner.h"
 #include "elist.h"
@@ -45,8 +46,19 @@
 #include "util.h"
 
 #define DEFAULT_SOCKWAIT 60
+#ifndef STRATUM_USER_AGENT
+#define STRATUM_USER_AGENT
+#endif
 
 bool successful_connect = false;
+
+int no_yield(void)
+{
+	return 0;
+}
+
+int (*selective_yield)(void) = &no_yield;
+
 static void keep_sockalive(SOCKETTYPE fd)
 {
 	const int tcp_one = 1;
@@ -67,7 +79,8 @@ static void keep_sockalive(SOCKETTYPE fd)
 #ifndef __linux
 		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&tcp_one, sizeof(tcp_one));
 #else /* __linux */
-		setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&tcp_one, sizeof(tcp_one));
+	fcntl(fd, F_SETFD, FD_CLOEXEC);
+	setsockopt(fd, SOL_TCP, TCP_NODELAY, (const void *)&tcp_one, sizeof(tcp_one));
 	setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &tcp_one, sizeof(tcp_one));
 	setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &tcp_keepidle, sizeof(tcp_keepidle));
 	setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &tcp_keepintvl, sizeof(tcp_keepintvl));
@@ -77,6 +90,211 @@ static void keep_sockalive(SOCKETTYPE fd)
 	setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &tcp_keepintvl, sizeof(tcp_keepintvl));
 #endif /* __APPLE_CC__ */
 
+}
+
+#ifdef WIN32
+/* Generic versions of inet_pton for windows, using different names in case
+ * it is implemented in ming in the future. */
+#define W32NS_INADDRSZ  4
+#define W32NS_IN6ADDRSZ 16
+#define W32NS_INT16SZ   2
+
+static int Inet_Pton4(const char *src, char *dst)
+{
+	uint8_t tmp[W32NS_INADDRSZ], *tp;
+
+	int saw_digit = 0;
+	int octets = 0;
+	*(tp = tmp) = 0;
+
+	int ch;
+	while ((ch = *src++) != '\0')
+	{
+		if (ch >= '0' && ch <= '9')
+		{
+			uint32_t n = *tp * 10 + (ch - '0');
+
+			if (saw_digit && *tp == 0)
+				return 0;
+
+			if (n > 255)
+				return 0;
+
+			*tp = n;
+			if (!saw_digit)
+			{
+				if (++octets > 4)
+					return 0;
+				saw_digit = 1;
+			}
+		}
+		else if (ch == '.' && saw_digit)
+		{
+			if (octets == 4)
+				return 0;
+			*++tp = 0;
+			saw_digit = 0;
+		}
+		else
+			return 0;
+	}
+	if (octets < 4)
+		return 0;
+
+	cg_memcpy(dst, tmp, W32NS_INADDRSZ);
+
+	return 1;
+}
+
+static int Inet_Pton6(const char *src, char *dst)
+{
+	static const char xdigits[] = "0123456789abcdef";
+	uint8_t tmp[W32NS_IN6ADDRSZ];
+
+	uint8_t *tp = (uint8_t*) memset(tmp, '\0', W32NS_IN6ADDRSZ);
+	uint8_t *endp = tp + W32NS_IN6ADDRSZ;
+	uint8_t *colonp = NULL;
+
+	/* Leading :: requires some special handling. */
+	if (*src == ':')
+	{
+		if (*++src != ':')
+			return 0;
+	}
+
+	const char *curtok = src;
+	int saw_xdigit = 0;
+	uint32_t val = 0;
+	int ch;
+	while ((ch = tolower(*src++)) != '\0')
+	{
+		const char *pch = strchr(xdigits, ch);
+		if (pch != NULL)
+		{
+			val <<= 4;
+			val |= (pch - xdigits);
+			if (val > 0xffff)
+				return 0;
+			saw_xdigit = 1;
+			continue;
+		}
+		if (ch == ':')
+		{
+			curtok = src;
+			if (!saw_xdigit)
+			{
+				if (colonp)
+					return 0;
+				colonp = tp;
+				continue;
+			}
+			else if (*src == '\0')
+			{
+				return 0;
+			}
+			if (tp + W32NS_INT16SZ > endp)
+				return 0;
+			*tp++ = (uint8_t) (val >> 8) & 0xff;
+			*tp++ = (uint8_t) val & 0xff;
+			saw_xdigit = 0;
+			val = 0;
+			continue;
+		}
+		if (ch == '.' && ((tp + W32NS_INADDRSZ) <= endp) &&
+			Inet_Pton4(curtok, (char*) tp) > 0)
+		{
+			tp += W32NS_INADDRSZ;
+			saw_xdigit = 0;
+			break; /* '\0' was seen by inet_pton4(). */
+		}
+		return 0;
+	}
+	if (saw_xdigit)
+	{
+		if (tp + W32NS_INT16SZ > endp)
+			return 0;
+		*tp++ = (uint8_t) (val >> 8) & 0xff;
+		*tp++ = (uint8_t) val & 0xff;
+	}
+	if (colonp != NULL)
+	{
+		int i;
+		/*
+			* Since some memmove()'s erroneously fail to handle
+			* overlapping regions, we'll do the shift by hand.
+			*/
+		const int n = tp - colonp;
+
+		if (tp == endp)
+			return 0;
+
+		for (i = 1; i <= n; i++)
+		{
+			endp[-i] = colonp[n - i];
+			colonp[n - i] = 0;
+		}
+		tp = endp;
+	}
+	if (tp != endp)
+		return 0;
+
+	cg_memcpy(dst, tmp, W32NS_IN6ADDRSZ);
+
+	return 1;
+}
+
+int Inet_Pton(int af, const char *src, void *dst)
+{
+	switch (af)
+	{
+		case AF_INET:
+			return Inet_Pton4(src, dst);
+		case AF_INET6:
+			return Inet_Pton6(src, dst);
+		default:
+			return -1;
+	}
+}
+#endif
+
+/* Align a size_t to 4 byte boundaries for fussy arches */
+static inline void align_len(size_t *len)
+{
+	if (*len % 4)
+		*len += 4 - (*len % 4);
+}
+
+void *_cgmalloc(size_t size, const char *file, const char *func, const int line)
+{
+	void *ret;
+
+	align_len(&size);
+	ret = malloc(size);
+	if (unlikely(!ret))
+		quit(1, "Failed to malloc size %d from %s %s:%d", (int)size, file, func, line);
+	return ret;
+}
+
+void *_cgcalloc(const size_t memb, size_t size, const char *file, const char *func, const int line)
+{
+	void *ret;
+
+	align_len(&size);
+	ret = calloc(memb, size);
+	if (unlikely(!ret))
+		quit(1, "Failed to calloc memb %d size %d from %s %s:%d", (int)memb, (int)size, file, func, line);
+	return ret;
+}
+
+void *_cgrealloc(void *ptr, size_t size, const char *file, const char *func, const int line)
+{
+	void *ret;
+
+	align_len(&size);
+	ret = realloc(ptr, size);
+	if (unlikely(!ret))
+		quit(1, "Failed to realloc size %d from %s %s:%d", (int)size, file, func, line);
+	return ret;
 }
 
 struct tq_ent {
@@ -129,14 +347,11 @@ static size_t all_data_cb(const void *ptr, size_t size, size_t nmemb,
 	oldlen = db->len;
 	newlen = oldlen + len;
 
-	newmem = realloc(db->buf, newlen + 1);
-	if (!newmem)
-		return 0;
-
+	newmem = cgrealloc(db->buf, newlen + 1);
 	db->buf = newmem;
 	db->len = newlen;
-	memcpy(db->buf + oldlen, ptr, len);
-	memcpy(db->buf + newlen, &zero, 1);	/* null terminate */
+	cg_memcpy(db->buf + oldlen, ptr, len);
+	cg_memcpy(db->buf + newlen, &zero, 1);	/* null terminate */
 
 	return len;
 }
@@ -151,7 +366,7 @@ static size_t upload_data_cb(void *ptr, size_t size, size_t nmemb,
 		len = ub->len;
 
 	if (len) {
-		memcpy(ptr, ub->buf, len);
+		cg_memcpy(ptr, ub->buf, len);
 		ub->buf += len;
 		ub->len -= len;
 	}
@@ -166,10 +381,8 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	char *rem, *val = NULL, *key = NULL;
 	void *tmp;
 
-	val = calloc(1, ptrlen);
-	key = calloc(1, ptrlen);
-	if (!key || !val)
-		goto out;
+	val = cgcalloc(1, ptrlen);
+	key = cgcalloc(1, ptrlen);
 
 	tmp = memchr(ptr, ':', ptrlen);
 	if (!tmp || (tmp == ptr))	/* skip empty keys / blanks */
@@ -177,7 +390,7 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	slen = tmp - ptr;
 	if ((slen + 1) == ptrlen)	/* skip key w/ no value */
 		goto out;
-	memcpy(key, ptr, slen);		/* store & nul term key */
+	cg_memcpy(key, ptr, slen);		/* store & nul term key */
 	key[slen] = 0;
 
 	rem = ptr + slen + 1;		/* trim value's leading whitespace */
@@ -187,7 +400,7 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 		rem++;
 	}
 
-	memcpy(val, rem, remlen);	/* store value, trim trailing ws */
+	cg_memcpy(val, rem, remlen);	/* store value, trim trailing ws */
 	val[remlen] = 0;
 	while ((*val) && (isspace(val[strlen(val) - 1])))
 		val[strlen(val) - 1] = 0;
@@ -211,7 +424,7 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 				sscanf(val + 7, "%d", &hi->rolltime);
 				hi->hadexpire = true;
 			} else
-				hi->rolltime = opt_scantime;
+				hi->rolltime = max_scantime;
 			applog(LOG_DEBUG, "X-Roll-Ntime expiry set to %d", hi->rolltime);
 		}
 	}
@@ -296,6 +509,59 @@ static int curl_debug_cb(__maybe_unused CURL *handle, curl_infotype type,
 	return 0;
 }
 
+json_t *json_web_config(const char *url)
+{
+	struct data_buffer all_data = {NULL, 0};
+	char curl_err_str[CURL_ERROR_SIZE];
+	long timeout = 60;
+	json_error_t err;
+	json_t *val;
+	CURL *curl;
+	int rc;
+
+	memset(&err, 0, sizeof(err));
+
+	curl = curl_easy_init();
+	if (unlikely(!curl))
+		quithere(1, "CURL initialisation failed");
+
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
+	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_err_str);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
+	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_TRY);
+
+	val = NULL;
+	rc = curl_easy_perform(curl);
+	curl_easy_cleanup(curl);
+	if (rc) {
+		applog(LOG_ERR, "HTTP config request of '%s' failed: %s", url, curl_err_str);
+		goto c_out;
+	}
+
+	if (!all_data.buf) {
+		applog(LOG_ERR, "Empty config data received from '%s'", url);
+		goto c_out;
+	}
+
+	val = JSON_LOADS(all_data.buf, &err);
+	if (!val) {
+		applog(LOG_ERR, "JSON config decode of '%s' failed(%d): %s", url,
+		       err.line, err.text);
+	}
+	databuf_free(&all_data);
+
+c_out:
+	return val;
+}
+
 json_t *json_rpc_call(CURL *curl, const char *url,
 		      const char *userpass, const char *rpc_req,
 		      bool probe, bool longpoll, int *rolltime,
@@ -377,7 +643,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	if (likely(global_hashrate)) {
 		char ghashrate[255];
 
-		sprintf(ghashrate, "X-Mining-Hashrate: %llu", global_hashrate);
+		sprintf(ghashrate, "X-Mining-Hashrate: %"PRIu64, global_hashrate);
 		headers = curl_slist_append(headers, ghashrate);
 	}
 
@@ -570,10 +836,7 @@ char *get_proxy(char *url, struct pool *pool)
 
 			*split = '\0';
 			len = split - url;
-			pool->rpc_proxy = malloc(1 + len - plen);
-			if (!(pool->rpc_proxy))
-				quithere(1, "Failed to malloc rpc_proxy");
-
+			pool->rpc_proxy = cgmalloc(1 + len - plen);
 			strcpy(pool->rpc_proxy, url + plen);
 			extract_sockaddr(pool->rpc_proxy, &pool->sockaddr_proxy_url, &pool->sockaddr_proxy_port);
 			pool->rpc_proxytype = proxynames[i].proxytype;
@@ -608,16 +871,12 @@ char *bin2hex(const unsigned char *p, size_t len)
 	slen = len * 2 + 1;
 	if (slen % 4)
 		slen += 4 - (slen % 4);
-	s = calloc(slen, 1);
-	if (unlikely(!s))
-		quithere(1, "Failed to calloc");
-
+	s = cgcalloc(slen, 1);
 	__bin2hex(s, p, len);
 
 	return s;
 }
 
-/* Does the reverse of bin2hex but does not allocate any ram */
 static const int hex2bin_tbl[256] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -636,6 +895,8 @@ static const int hex2bin_tbl[256] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
+
+/* Does the reverse of bin2hex but does not allocate any ram */
 bool hex2bin(unsigned char *p, const char *hexstr, size_t len)
 {
 	int nibble1, nibble2;
@@ -664,6 +925,162 @@ bool hex2bin(unsigned char *p, const char *hexstr, size_t len)
 
 	if (likely(len == 0 && *hexstr == 0))
 		ret = true;
+	return ret;
+}
+
+static bool _valid_hex(char *s, const char *file, const char *func, const int line)
+{
+	bool ret = false;
+	int i, len;
+
+	if (unlikely(!s)) {
+		applog(LOG_ERR, "Null string passed to valid_hex from"IN_FMT_FFL, file, func, line);
+		return ret;
+	}
+	len = strlen(s);
+	for (i = 0; i < len; i++) {
+		unsigned char idx = s[i];
+
+		if (unlikely(hex2bin_tbl[idx] < 0)) {
+			applog(LOG_ERR, "Invalid char 0x%x passed to valid_hex from"IN_FMT_FFL, idx, file, func, line);
+			return ret;
+		}
+	}
+	ret = true;
+	return ret;
+}
+
+#define valid_hex(s) _valid_hex(s, __FILE__, __func__, __LINE__)
+
+static bool _valid_ascii(char *s, const char *file, const char *func, const int line)
+{
+	bool ret = false;
+	int i, len;
+
+	if (unlikely(!s)) {
+		applog(LOG_ERR, "Null string passed to valid_ascii from"IN_FMT_FFL, file, func, line);
+		return ret;
+	}
+	len = strlen(s);
+	if (unlikely(!len)) {
+		applog(LOG_ERR, "Zero length string passed to valid_ascii from"IN_FMT_FFL, file, func, line);
+		return ret;
+	}
+	for (i = 0; i < len; i++) {
+		unsigned char idx = s[i];
+
+		if (unlikely(idx < 32 || idx > 126)) {
+			applog(LOG_ERR, "Invalid char 0x%x passed to valid_ascii from"IN_FMT_FFL, idx, file, func, line);
+			return ret;
+		}
+	}
+	ret = true;
+	return ret;
+}
+
+#define valid_ascii(s) _valid_ascii(s, __FILE__, __func__, __LINE__)
+
+static const int b58tobin_tbl[] = {
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1,  0,  1,  2,  3,  4,  5,  6,  7,  8, -1, -1, -1, -1, -1, -1,
+	-1,  9, 10, 11, 12, 13, 14, 15, 16, -1, 17, 18, 19, 20, 21, -1,
+	22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, -1, -1, -1, -1, -1,
+	-1, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, -1, 44, 45, 46,
+	47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57
+};
+
+/* b58bin should always be at least 25 bytes long and already checked to be
+ * valid. */
+void b58tobin(unsigned char *b58bin, const char *b58)
+{
+	uint32_t c, bin32[7];
+	int len, i, j;
+	uint64_t t;
+
+	memset(bin32, 0, 7 * sizeof(uint32_t));
+	len = strlen(b58);
+	for (i = 0; i < len; i++) {
+		c = b58[i];
+		c = b58tobin_tbl[c];
+		for (j = 6; j >= 0; j--) {
+			t = ((uint64_t)bin32[j]) * 58 + c;
+			c = (t & 0x3f00000000ull) >> 32;
+			bin32[j] = t & 0xffffffffull;
+		}
+	}
+	*(b58bin++) = bin32[0] & 0xff;
+	for (i = 1; i < 7; i++) {
+		*((uint32_t *)b58bin) = htobe32(bin32[i]);
+		b58bin += sizeof(uint32_t);
+	}
+}
+
+void address_to_pubkeyhash(unsigned char *pkh, const char *addr)
+{
+	unsigned char b58bin[25];
+
+	memset(b58bin, 0, 25);
+	b58tobin(b58bin, addr);
+	pkh[0] = 0x76;
+	pkh[1] = 0xa9;
+	pkh[2] = 0x14;
+	cg_memcpy(&pkh[3], &b58bin[1], 20);
+	pkh[23] = 0x88;
+	pkh[24] = 0xac;
+}
+
+/*  For encoding nHeight into coinbase, return how many bytes were used */
+int ser_number(unsigned char *s, int32_t val)
+{
+	int32_t *i32 = (int32_t *)&s[1];
+	int len;
+
+	if (val < 17) {
+		s[0] = 0x50 + val;
+		return 1;
+	}
+	if (val < 128)
+		len = 1;
+	else if (val < 32768)
+		len = 2;
+	else if (val < 8388608)
+		len = 3;
+	else
+		len = 4;
+	*i32 = htole32(val);
+	s[0] = len++;
+	return len;
+}
+
+/* For encoding variable length strings */
+unsigned char *ser_string(char *s, int *slen)
+{
+	size_t len = strlen(s);
+	unsigned char *ret;
+
+	ret = cgmalloc(1 + len + 8); // Leave room for largest size
+	if (len < 253) {
+		ret[0] = len;
+		cg_memcpy(ret + 1, s, len);
+		*slen = len + 1;
+	} else if (len < 0x10000) {
+		uint16_t *u16 = (uint16_t *)&ret[1];
+
+		ret[0] = 253;
+		*u16 = htobe16(len);
+		cg_memcpy(ret + 3, s, len);
+		*slen = len + 3;
+	} else {
+		/* size_t is only 32 bit on many platforms anyway */
+		uint32_t *u32 = (uint32_t *)&ret[1];
+
+		ret[0] = 254;
+		*u32 = htobe32(len);
+		cg_memcpy(ret + 5, s, len);
+		*slen = len + 5;
+	}
 	return ret;
 }
 
@@ -714,10 +1131,7 @@ struct thread_q *tq_new(void)
 {
 	struct thread_q *tq;
 
-	tq = calloc(1, sizeof(*tq));
-	if (!tq)
-		return NULL;
-
+	tq = cgcalloc(1, sizeof(*tq));
 	INIT_LIST_HEAD(&tq->q);
 	pthread_mutex_init(&tq->mutex, NULL);
 	pthread_cond_init(&tq->cond, NULL);
@@ -767,10 +1181,7 @@ bool tq_push(struct thread_q *tq, void *data)
 	struct tq_ent *ent;
 	bool rc = true;
 
-	ent = calloc(1, sizeof(*ent));
-	if (!ent)
-		return false;
-
+	ent = cgcalloc(1, sizeof(*ent));
 	ent->data = data;
 	INIT_LIST_HEAD(&ent->q_node);
 
@@ -787,7 +1198,7 @@ bool tq_push(struct thread_q *tq, void *data)
 	return rc;
 }
 
-void *tq_pop(struct thread_q *tq, const struct timespec *abstime)
+void *tq_pop(struct thread_q *tq)
 {
 	struct tq_ent *ent;
 	void *rval = NULL;
@@ -797,10 +1208,7 @@ void *tq_pop(struct thread_q *tq, const struct timespec *abstime)
 	if (!list_empty(&tq->q))
 		goto pop;
 
-	if (abstime)
-		rc = pthread_cond_timedwait(&tq->cond, &tq->mutex, abstime);
-	else
-		rc = pthread_cond_wait(&tq->cond, &tq->mutex);
+	rc = pthread_cond_wait(&tq->cond, &tq->mutex);
 	if (rc)
 		goto out;
 	if (list_empty(&tq->q))
@@ -858,7 +1266,7 @@ bool time_less(struct timeval *a, struct timeval *b)
 
 void copy_time(struct timeval *dest, const struct timeval *src)
 {
-	memcpy(dest, src, sizeof(struct timeval));
+	cg_memcpy(dest, src, sizeof(struct timeval));
 }
 
 void timespec_to_val(struct timeval *val, const struct timespec *spec)
@@ -905,16 +1313,26 @@ void ms_to_timeval(struct timeval *val, int64_t ms)
 	val->tv_usec = tvdiv.rem * 1000;
 }
 
+static void spec_nscheck(struct timespec *ts)
+{
+	while (ts->tv_nsec >= 1000000000) {
+		ts->tv_nsec -= 1000000000;
+		ts->tv_sec++;
+	}
+	while (ts->tv_nsec < 0) {
+		ts->tv_nsec += 1000000000;
+		ts->tv_sec--;
+	}
+}
+
 void timeraddspec(struct timespec *a, const struct timespec *b)
 {
 	a->tv_sec += b->tv_sec;
 	a->tv_nsec += b->tv_nsec;
-	if (a->tv_nsec >= 1000000000) {
-		a->tv_nsec -= 1000000000;
-		a->tv_sec++;
-	}
+	spec_nscheck(a);
 }
 
+#ifdef USE_BITMAIN_SOC
 static int __maybe_unused timespec_to_ms(struct timespec *ts)
 {
 	return ts->tv_sec * 1000 + ts->tv_nsec / 1000000;
@@ -925,17 +1343,94 @@ static void __maybe_unused timersubspec(struct timespec *a, const struct timespe
 {
 	a->tv_sec -= b->tv_sec;
 	a->tv_nsec -= b->tv_nsec;
-	if (a->tv_nsec < 0) {
-		a->tv_nsec += 1000000000;
-		a->tv_sec--;
-	}
+	spec_nscheck(a);
 }
+#else /* USE_BITMAIN_SOC */
+static int __maybe_unused timespec_to_ms(struct timespec *ts)
+{
+	return ts->tv_sec * 1000 + ts->tv_nsec / 1000000;
+}
+
+static int64_t __maybe_unused timespec_to_us(struct timespec *ts)
+{
+	return (int64_t)ts->tv_sec * 1000000 + ts->tv_nsec / 1000;
+}
+
+/* Subtract b from a */
+static void __maybe_unused timersubspec(struct timespec *a, const struct timespec *b)
+{
+	a->tv_sec -= b->tv_sec;
+	a->tv_nsec -= b->tv_nsec;
+	spec_nscheck(a);
+}
+#endif /* USE_BITMAIN_SOC */
+
+char *Strcasestr(char *haystack, const char *needle)
+{
+	char *lowhay, *lowneedle, *ret;
+	int hlen, nlen, i, ofs;
+
+	if (unlikely(!haystack || !needle))
+		return NULL;
+	hlen = strlen(haystack);
+	nlen = strlen(needle);
+	if (!hlen || !nlen)
+		return NULL;
+	lowhay = alloca(hlen);
+	lowneedle = alloca(nlen);
+	for (i = 0; i < hlen; i++)
+		lowhay[i] = tolower(haystack[i]);
+	for (i = 0; i < nlen; i++)
+		lowneedle[i] = tolower(needle[i]);
+	ret = strstr(lowhay, lowneedle);
+	if (!ret)
+		return ret;
+	ofs = ret - lowhay;
+	return haystack + ofs;
+}
+
+char *Strsep(char **stringp, const char *delim)
+{
+	char *ret = *stringp;
+	char *p;
+
+	p = (ret != NULL) ? strpbrk(ret, delim) : NULL;
+
+	if (p == NULL)
+		*stringp = NULL;
+	else {
+		*p = '\0';
+		*stringp = p + 1;
+	}
+
+	return ret;
+}
+
+/* Get timespec specifically for use by cond_timedwait functions which use
+ * CLOCK_REALTIME for expiry */
+void cgcond_time(struct timespec *abstime)
+{
+	clock_gettime(CLOCK_REALTIME, abstime);
+}
+
+#ifdef USE_GEKKO
+/* Get CLOCK_REALTIME for display purposes */
+void cgtime_real(struct timeval *tv)
+{
+	struct timespec tp;
+	clock_gettime(CLOCK_REALTIME, &tp);
+	tv->tv_sec = tp.tv_sec;
+	tv->tv_usec = tp.tv_nsec / 1000;
+}
+#endif
+#ifdef WIN32
+/* Mingw32 has no strsep so create our own custom one  */
+
+/* Windows start time is since 1601 LOL so convert it to unix epoch 1970. */
+#define EPOCHFILETIME (116444736000000000LL)
 
 /* These are cgminer specific sleep functions that use an absolute nanosecond
  * resolution timer to avoid poor usleep accuracy and overruns. */
-#ifdef WIN32
-/* Windows start time is since 1601 LOL so convert it to unix epoch 1970. */
-#define EPOCHFILETIME (116444736000000000LL)
 
 /* Return the system time as an lldiv_t in decimicroseconds. */
 static void decius_time(lldiv_t *lidiv)
@@ -967,7 +1462,10 @@ void cgtime(struct timeval *tv)
 #else /* WIN32 */
 void cgtime(struct timeval *tv)
 {
-	gettimeofday(tv, NULL);
+	cgtimer_t cgt;
+
+	cgtimer_time(&cgt);
+	timespec_to_val(tv, &cgt);
 }
 
 int cgtimer_to_ms(cgtimer_t *cgt)
@@ -987,7 +1485,8 @@ void cgtimer_sub(cgtimer_t *a, cgtimer_t *b, cgtimer_t *res)
 }
 #endif /* WIN32 */
 
-#ifdef CLOCK_MONOTONIC /* Essentially just linux */
+#if defined(CLOCK_MONOTONIC) && !defined(__FreeBSD__) && !defined(__APPLE__) && !defined(WIN32) /* Essentially just linux */
+//#ifdef CLOCK_MONOTONIC /* Essentially just linux */
 void cgtimer_time(cgtimer_t *ts_start)
 {
 	clock_gettime(CLOCK_MONOTONIC, ts_start);
@@ -1005,6 +1504,7 @@ static void nanosleep_abstime(struct timespec *ts_end)
 /* Reentrant version of cgsleep functions allow start time to be set separately
  * from the beginning of the actual sleep, allowing scheduling delays to be
  * counted in the sleep. */
+#ifdef USE_BITMAIN_SOC
 void cgsleep_ms_r(cgtimer_t *ts_start, int ms)
 {
 	struct timespec ts_end;
@@ -1022,6 +1522,41 @@ void cgsleep_us_r(cgtimer_t *ts_start, int64_t us)
 	timeraddspec(&ts_end, ts_start);
 	nanosleep_abstime(&ts_end);
 }
+#else /* USE_BITMAIN_SOC */
+int cgsleep_ms_r(cgtimer_t *ts_start, int ms)
+{
+	struct timespec ts_end, ts_diff;
+	int msdiff;
+
+	ms_to_timespec(&ts_end, ms);
+	timeraddspec(&ts_end, ts_start);
+	cgtimer_time(&ts_diff);
+	/* Should be a negative value if we still have to sleep */
+	timersubspec(&ts_diff, &ts_end);
+	msdiff = -timespec_to_ms(&ts_diff);
+	if (msdiff <= 0)
+		return 0;
+
+	nanosleep_abstime(&ts_end);
+	return msdiff;
+}
+
+int64_t cgsleep_us_r(cgtimer_t *ts_start, int64_t us)
+{
+	struct timespec ts_end, ts_diff;
+	int64_t usdiff;
+
+	us_to_timespec(&ts_end, us);
+	timeraddspec(&ts_end, ts_start);
+	cgtimer_time(&ts_diff);
+	usdiff = -timespec_to_us(&ts_diff);
+	if (usdiff <= 0)
+		return 0;
+
+	nanosleep_abstime(&ts_end);
+	return usdiff;
+}
+#endif /* USE_BITMAIN_SOC */
 #else /* CLOCK_MONOTONIC */
 #ifdef __MACH__
 #include <mach/clock.h>
@@ -1043,8 +1578,8 @@ void cgtimer_time(cgtimer_t *ts_start)
 	struct timeval tv;
 
 	cgtime(&tv);
-	ts_start->tv_sec = tv->tv_sec;
-	ts_start->tv_nsec = tv->tv_usec * 1000;
+	ts_start->tv_sec = tv.tv_sec;
+	ts_start->tv_nsec = tv.tv_usec * 1000;
 }
 #endif /* __MACH__ */
 
@@ -1155,10 +1690,27 @@ void cgsleep_ms(int ms)
 	cgsleep_ms_r(&ts_start, ms);
 }
 
+static void busywait_us(int64_t us)
+{
+	struct timeval diff, end, now;
+
+	cgtime(&end);
+	us_to_timeval(&diff, us);
+	addtime(&diff, &end);
+	do {
+		sched_yield();
+		cgtime(&now);
+	} while (time_less(&now, &end));
+}
+
 void cgsleep_us(int64_t us)
 {
 	cgtimer_t ts_start;
 
+	/* Most timer resolution is unlikely to be able to sleep accurately
+	 * for less than 1ms so busywait instead. */
+	if (us < 1000)
+		return busywait_us(us);
 	cgsleep_prepare_r(&ts_start);
 	cgsleep_us_r(&ts_start, us);
 }
@@ -1220,13 +1772,19 @@ bool extract_sockaddr(char *url, char **sockaddr_url, char **sockaddr_port)
 	if (url_len < 1)
 		return false;
 
-	sprintf(url_address, "%.*s", url_len, url_begin);
+	/* Get rid of the [] */
+	if (ipv6_begin && ipv6_end && ipv6_end > ipv6_begin) {
+		url_len -= 2;
+		url_begin++;
+	}
+
+	snprintf(url_address, 254, "%.*s", url_len, url_begin);
 
 	if (port_len) {
 		char *slash;
 
 		snprintf(port, 6, "%.*s", port_len, port_start);
-		slash = strchr(port, '/');
+		slash = strpbrk(port, "/#");
 		if (slash)
 			*slash = '\0';
 	} else
@@ -1259,11 +1817,14 @@ static enum send_ret __stratum_send(struct pool *pool, char *s, ssize_t len)
 		struct timeval timeout = {1, 0};
 		ssize_t sent;
 		fd_set wd;
-
+retry:
 		FD_ZERO(&wd);
 		FD_SET(sock, &wd);
-		if (select(sock + 1, NULL, &wd, NULL, &timeout) < 1)
+		if (select(sock + 1, NULL, &wd, NULL, &timeout) < 1) {
+			if (interrupted())
+				goto retry;
 			return SEND_SELECTFAIL;
+		}
 #ifdef __APPLE__
 		sent = send(pool->sock, s + ssent, len, SO_NOSIGPIPE);
 #elif WIN32
@@ -1346,7 +1907,8 @@ bool sock_full(struct pool *pool)
 
 static void clear_sockbuf(struct pool *pool)
 {
-	strcpy(pool->sockbuf, "");
+	if (likely(pool->sockbuf))
+		strcpy(pool->sockbuf, "");
 }
 
 static void clear_sock(struct pool *pool)
@@ -1365,6 +1927,16 @@ static void clear_sock(struct pool *pool)
 	clear_sockbuf(pool);
 }
 
+/* Realloc memory to new size and zero any extra memory added */
+void ckrecalloc(void **ptr, size_t old, size_t new, const char *file, const char *func, const int line)
+{
+	if (new == old)
+		return;
+	*ptr = _cgrealloc(*ptr, new, file, func, line);
+	if (new > old)
+		memset(*ptr + old, 0, new - old);
+}
+
 /* Make sure the pool sockbuf is large enough to cope with any coinbase size
  * by reallocing it to a large enough size rounded up to a multiple of RBUFSIZE
  * and zeroing the new memory */
@@ -1379,9 +1951,7 @@ static void recalloc_sock(struct pool *pool, size_t len)
 	new = new + (RBUFSIZE - (new % RBUFSIZE));
 	// Avoid potentially recursive locking
 	// applog(LOG_DEBUG, "Recallocing pool sockbuf to %d", new);
-	pool->sockbuf = realloc(pool->sockbuf, new);
-	if (!pool->sockbuf)
-		quithere(1, "Failed to realloc pool sockbuf");
+	pool->sockbuf = cgrealloc(pool->sockbuf, new);
 	memset(pool->sockbuf + old, 0, new - old);
 	pool->sockbuf_size = new;
 }
@@ -1488,14 +2058,267 @@ static char *json_array_string(json_t *val, unsigned int entry)
 	return NULL;
 }
 
-static char *blank_merkel = "0000000000000000000000000000000000000000000000000000000000000000";
+static char *blank_merkle = "0000000000000000000000000000000000000000000000000000000000000000";
+
+#ifdef HAVE_LIBCURL
+static void decode_exit(struct pool *pool, char *cb)
+{
+	CURL *curl = curl_easy_init();
+	char *decreq, *s;
+	json_t *val;
+	int dummy;
+
+	if (!opt_btcd && !sleep(3) && !opt_btcd) {
+		applog(LOG_ERR, "No bitcoind specified, unable to decode coinbase.");
+		exit(1);
+	}
+	decreq = cgmalloc(strlen(cb) + 256);
+
+	sprintf(decreq, "{\"id\": 0, \"method\": \"decoderawtransaction\", \"params\": [\"%s\"]}\n",
+		cb);
+	val = json_rpc_call(curl, opt_btcd->rpc_url, opt_btcd->rpc_userpass, decreq,
+			    false, false, &dummy, opt_btcd, false);
+	free(decreq);
+	if (!val) {
+		applog(LOG_ERR, "Failed json_rpc_call to btcd %s", opt_btcd->rpc_url);
+		exit(1);
+	}
+	s = json_dumps(val, JSON_INDENT(4));
+	printf("Pool %s:\n%s\n", pool->rpc_url, s);
+	free(s);
+	exit(0);
+}
+#else
+static void decode_exit(struct pool __maybe_unused *pool, char __maybe_unused *b)
+{
+}
+#endif
+
+static int calculate_num_bits(int num)
+{
+	int ret=0;
+	while(num != 0)
+	{
+		ret++;
+		num /= 16;
+	}
+	return ret;
+}
+
+static void get_vmask(struct pool *pool, char *bbversion)
+{
+	char defaultStr[9]= "00000000";
+	int bversion, num_bits, i, j;
+	uint8_t buffer[4] = {};
+	uint32_t uiMagicNum;
+	char *tmpstr;
+	uint32_t *p1;
+
+	p1 = (uint32_t *)buffer;
+	bversion = strtol(bbversion, NULL, 16);
+
+	for (i = 0; i < 4; i++) {
+		uiMagicNum = bversion | pool->vmask_003[i];
+		//printf("[ccx]uiMagicNum:0x%x. \n", uiMagicNum);
+		*p1 = bswap_32(uiMagicNum);
+
+		//printf("[ccx]*p1:0x%x. \n", *p1);
+		switch(i) {
+			case 0:
+				pool->vmask_001[8] = *p1;
+				break;
+			case 1:
+				pool->vmask_001[4] = *p1;
+				break;
+			case 2:
+				pool->vmask_001[2] = *p1;
+				break;
+			case 3:
+				pool->vmask_001[0] = *p1;
+				break;
+			default:
+				break;
+		}
+	}
+
+	for (i = 0; i < 16; i++) {
+		if ((i!= 2) && (i!=4) && (i!=8))
+			pool->vmask_001[i] = pool->vmask_001[0];
+	}
+
+	for (i = 0; i < 16; i++)
+		memcpy(pool->vmask_002[i], defaultStr, 9);
+
+	for (i = 0; i < 3; i++) {
+		char cMask[12];
+
+		tmpstr = (char *)cgcalloc(9, 1);
+		num_bits = calculate_num_bits(pool->vmask_003[i]);
+		for (j = 0; j < (8-num_bits); j++)
+			tmpstr[j] = '0';
+
+		snprintf(cMask, 9, "%x", pool->vmask_003[i]);
+		memcpy(tmpstr + 8 - num_bits, cMask, num_bits);
+		tmpstr[8] = '\0';
+
+		//printf("[ccx]tmpstr:%s. \n", tmpstr);
+		switch(i) {
+			case 0:
+				memcpy(pool->vmask_002[8], tmpstr, 9);
+				break;
+			case 1:
+				memcpy(pool->vmask_002[4], tmpstr, 9);
+				break;
+			case 2:
+				memcpy(pool->vmask_002[2], tmpstr, 9);
+				break;
+			default:
+				break;
+		}
+		free(tmpstr);
+	}
+}
+
+static bool set_vmask(struct pool *pool, json_t *val)
+{
+	int mask, tmpMask = 0, cnt = 0, i, rem;
+	const char *version_mask;
+
+	version_mask = json_string_value(val);
+	applog(LOG_INFO, "Pool %d version_mask:%s.", pool->pool_no, version_mask);
+
+	mask = strtol(version_mask, NULL, 16);
+	if (!mask)
+		return false;
+
+	pool->vmask_003[0] = mask;
+
+	while (mask % 16 == 0) {
+		cnt++;
+		mask /= 16;
+	}
+
+	if ((rem = mask % 16))
+		tmpMask = rem;
+	else if ((rem = mask % 8))
+		tmpMask = rem;
+	else if ((rem = mask % 4))
+		tmpMask = rem;
+	else if ((rem = mask % 2))
+		tmpMask = rem;
+
+	for (i = 0; i < cnt; i++)
+		tmpMask *= 16;
+	pool->vmask_003[2] = tmpMask;
+	pool->vmask_003[1] = pool->vmask_003[0] - tmpMask;
+
+	return true;
+}
+
+#ifdef USE_VMASK
+
+#define STRATUM_VERSION_ROLLING "version-rolling"
+#define STRATUM_VERSION_ROLLING_LEN (sizeof(STRATUM_VERSION_ROLLING) - 1)
+
+/**
+ * Configures stratum mining based on connected hardware capabilities
+ * (version rolling etc.)
+ *
+ * Sample communication
+ * Request:
+ * {"id": 1, "method": "mining.configure", "params": [ ["version-rolling"], "version-rolling.mask": "ffffffff" }]}\n
+ * Response:
+ * {"id": 1, "result": { "version-rolling": True, "version-rolling.mask": "00003000" }, "error": null}\n
+ *
+ * @param pool
+ *
+ *
+ * @return
+ */
+static bool configure_stratum_mining(struct pool *pool)
+{
+	char s[RBUFSIZE];
+	char *response_str = NULL;
+	bool config_status = false;
+	bool version_rolling_status = false;
+	bool version_mask_valid = false;
+	const char *key;
+	json_t *response, *value, *res_val, *err_val;
+	json_error_t err;
+
+	snprintf(s, RBUFSIZE,
+		 "{\"id\": %d, \"method\": \"mining.configure\", \"params\": "
+		 "[[\""STRATUM_VERSION_ROLLING"\"], "
+		 "{\""STRATUM_VERSION_ROLLING".mask\": \"%x\""
+		 "}]}",
+	  swork_id++, 0xffffffff);
+
+	if (__stratum_send(pool, s, strlen(s)) != SEND_OK) {
+		applog(LOG_DEBUG, "Failed to send mining.configure");
+		goto out;
+	}
+	if (!socket_full(pool, DEFAULT_SOCKWAIT)) {
+		applog(LOG_DEBUG, "Timed out waiting for response in %s", __FUNCTION__);
+		goto out;
+	}
+	response_str = recv_line(pool);
+	if (!response_str)
+		goto out;
+
+	response = JSON_LOADS(response_str, &err);
+	free(response_str);
+
+	res_val = json_object_get(response, "result");
+	err_val = json_object_get(response, "error");
+
+	if (!res_val || json_is_null(res_val) ||
+		(err_val && !json_is_null(err_val))) {
+				char *ss;
+
+			if (err_val)
+				ss = json_dumps(err_val, JSON_INDENT(3));
+			else
+				ss = strdup("(unknown reason)");
+
+			applog(LOG_INFO, "JSON-RPC decode failed: %s", ss);
+
+			free(ss);
+
+			goto json_response_error;
+	}
+
+	json_object_foreach(res_val, key, value) {
+		if (!strcasecmp(key, STRATUM_VERSION_ROLLING) &&
+		    strlen(key) == STRATUM_VERSION_ROLLING_LEN)
+			version_rolling_status = json_boolean_value(value);
+		else if (!strcasecmp(key, STRATUM_VERSION_ROLLING ".mask"))
+			pool->vmask = version_mask_valid = set_vmask(pool, value);
+		else
+			applog(LOG_ERR, "JSON-RPC unexpected mining.configure value: %s", key);
+	}
+
+	/* Valid configuration for now only requires enabled version rolling and valid bit mask */
+	config_status = version_rolling_status && version_mask_valid;
+
+	json_response_error:
+	json_decref(response);
+
+out:
+	return config_status;
+}
+#else
+static inline bool configure_stratum_mining(struct pool __maybe_unused *pool)
+{
+	return true;
+}
+#endif
 
 static bool parse_notify(struct pool *pool, json_t *val)
 {
 	char *job_id, *prev_hash, *coinbase1, *coinbase2, *bbversion, *nbit,
-	     *ntime, *header;
+	     *ntime, header[260];
+	unsigned char *cb1 = NULL, *cb2 = NULL;
 	size_t cb1_len, cb2_len, alloc_len;
-	unsigned char *cb1, *cb2;
 	bool clean, ret = false;
 	int merkles, i;
 	json_t *arr;
@@ -1507,108 +2330,124 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	merkles = json_array_size(arr);
 
 	job_id = json_array_string(val, 0);
-	prev_hash = json_array_string(val, 1);
+	prev_hash = __json_array_string(val, 1);
 	coinbase1 = json_array_string(val, 2);
 	coinbase2 = json_array_string(val, 3);
-	bbversion = json_array_string(val, 5);
-	nbit = json_array_string(val, 6);
-	ntime = json_array_string(val, 7);
+	bbversion = __json_array_string(val, 5);
+	nbit = __json_array_string(val, 6);
+	ntime = __json_array_string(val, 7);
 	clean = json_is_true(json_array_get(val, 8));
 
-	if (!job_id || !prev_hash || !coinbase1 || !coinbase2 || !bbversion || !nbit || !ntime) {
+	get_vmask(pool, bbversion);
+
+	if (!valid_ascii(job_id) || !valid_hex(prev_hash) || !valid_hex(coinbase1) ||
+	    !valid_hex(coinbase2) || !valid_hex(bbversion) || !valid_hex(nbit) ||
+	    !valid_hex(ntime)) {
 		/* Annoying but we must not leak memory */
-		if (job_id)
-			free(job_id);
-		if (prev_hash)
-			free(prev_hash);
-		if (coinbase1)
-			free(coinbase1);
-		if (coinbase2)
-			free(coinbase2);
-		if (bbversion)
-			free(bbversion);
-		if (nbit)
-			free(nbit);
-		if (ntime)
-			free(ntime);
+		free(job_id);
+		free(coinbase1);
+		free(coinbase2);
 		goto out;
 	}
 
 	cg_wlock(&pool->data_lock);
 	free(pool->swork.job_id);
-	free(pool->swork.prev_hash);
-	free(pool->swork.bbversion);
-	free(pool->swork.nbit);
-	free(pool->swork.ntime);
 	pool->swork.job_id = job_id;
-	pool->swork.prev_hash = prev_hash;
+	if (memcmp(pool->prev_hash, prev_hash, 64)) {
+		pool->swork.clean = true;
+	} else {
+		pool->swork.clean = clean;
+	}
+	snprintf(pool->prev_hash, 65, "%s", prev_hash);
 	cb1_len = strlen(coinbase1) / 2;
 	cb2_len = strlen(coinbase2) / 2;
-	pool->swork.bbversion = bbversion;
-	pool->swork.nbit = nbit;
-	pool->swork.ntime = ntime;
-	pool->swork.clean = clean;
-	alloc_len = pool->swork.cb_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
+	snprintf(pool->bbversion, 9, "%s", bbversion);
+	snprintf(pool->nbit, 9, "%s", nbit);
+	snprintf(pool->ntime, 9, "%s", ntime);
+	if (pool->next_diff > 0) {
+		pool->sdiff = pool->next_diff;
+		pool->next_diff = pool->diff_after;
+		pool->diff_after = 0;
+	}
+	alloc_len = pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
 	pool->nonce2_offset = cb1_len + pool->n1_len;
 
-	for (i = 0; i < pool->swork.merkles; i++)
+	for (i = 0; i < pool->merkles; i++)
 		free(pool->swork.merkle_bin[i]);
 	if (merkles) {
-		pool->swork.merkle_bin = realloc(pool->swork.merkle_bin,
-						 sizeof(char *) * merkles + 1);
+		pool->swork.merkle_bin = cgrealloc(pool->swork.merkle_bin,
+						   sizeof(char *) * merkles + 1);
 		for (i = 0; i < merkles; i++) {
 			char *merkle = json_array_string(arr, i);
 
-			pool->swork.merkle_bin[i] = malloc(32);
-			if (unlikely(!pool->swork.merkle_bin[i]))
-				quit(1, "Failed to malloc pool swork merkle_bin");
-			hex2bin(pool->swork.merkle_bin[i], merkle, 32);
+			pool->swork.merkle_bin[i] = cgmalloc(32);
+			if (opt_protocol)
+				applog(LOG_DEBUG, "merkle %d: %s", i, merkle);
+			ret = hex2bin(pool->swork.merkle_bin[i], merkle, 32);
 			free(merkle);
+			if (unlikely(!ret)) {
+				applog(LOG_ERR, "Failed to convert merkle to merkle_bin in parse_notify");
+				goto out_unlock;
+			}
 		}
 	}
-	pool->swork.merkles = merkles;
+	pool->merkles = merkles;
+	if (pool->merkles < 2)
+		pool->bad_work++;
 	if (clean)
 		pool->nonce2 = 0;
-	pool->merkle_offset = strlen(pool->swork.bbversion) +
-			      strlen(pool->swork.prev_hash);
-	pool->swork.header_len = pool->merkle_offset +
+#if 0
+	header_len = 		 strlen(pool->bbversion) +
+				 strlen(pool->prev_hash);
 	/* merkle_hash */	 32 +
-				 strlen(pool->swork.ntime) +
-				 strlen(pool->swork.nbit) +
+				 strlen(pool->ntime) +
+				 strlen(pool->nbit) +
 	/* nonce */		 8 +
 	/* workpadding */	 96;
-	pool->merkle_offset /= 2;
-	pool->swork.header_len = pool->swork.header_len * 2 + 1;
-	align_len(&pool->swork.header_len);
-	header = alloca(pool->swork.header_len);
-	snprintf(header, pool->swork.header_len,
+#endif
+	snprintf(header, 257,
 		"%s%s%s%s%s%s%s",
-		pool->swork.bbversion,
-		pool->swork.prev_hash,
-		blank_merkel,
-		pool->swork.ntime,
-		pool->swork.nbit,
+		pool->bbversion,
+		pool->prev_hash,
+		blank_merkle,
+		pool->ntime,
+		pool->nbit,
 		"00000000", /* nonce */
 		workpadding);
-	if (unlikely(!hex2bin(pool->header_bin, header, 128)))
-		quit(1, "Failed to convert header to header_bin in parse_notify");
 
-	cb1 = calloc(cb1_len, 1);
-	if (unlikely(!cb1))
-		quithere(1, "Failed to calloc cb1 in parse_notify");
-	hex2bin(cb1, coinbase1, cb1_len);
-	cb2 = calloc(cb2_len, 1);
-	if (unlikely(!cb2))
-		quithere(1, "Failed to calloc cb2 in parse_notify");
-	hex2bin(cb2, coinbase2, cb2_len);
+	ret = hex2bin(pool->header_bin, header, 128);
+	if (unlikely(!ret)) {
+		applog(LOG_ERR, "Failed to convert header to header_bin in parse_notify");
+		goto out_unlock;
+	}
+
+	cb1 = alloca(cb1_len);
+	ret = hex2bin(cb1, coinbase1, cb1_len);
+	if (unlikely(!ret)) {
+		applog(LOG_ERR, "Failed to convert cb1 to cb1_bin in parse_notify");
+		goto out_unlock;
+	}
+	cb2 = alloca(cb2_len);
+	ret = hex2bin(cb2, coinbase2, cb2_len);
+	if (unlikely(!ret)) {
+		applog(LOG_ERR, "Failed to convert cb2 to cb2_bin in parse_notify");
+		goto out_unlock;
+	}
 	free(pool->coinbase);
-	align_len(&alloc_len);
-	pool->coinbase = calloc(alloc_len, 1);
-	if (unlikely(!pool->coinbase))
-		quit(1, "Failed to calloc pool coinbase in parse_notify");
-	memcpy(pool->coinbase, cb1, cb1_len);
-	memcpy(pool->coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
-	memcpy(pool->coinbase + cb1_len + pool->n1_len + pool->n2size, cb2, cb2_len);
+	pool->coinbase = cgcalloc(alloc_len, 1);
+	cg_memcpy(pool->coinbase, cb1, cb1_len);
+	if (pool->n1_len)
+		cg_memcpy(pool->coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
+	cg_memcpy(pool->coinbase + cb1_len + pool->n1_len + pool->n2size, cb2, cb2_len);
+	if (opt_debug || opt_decode) {
+		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
+
+		if (opt_decode)
+			decode_exit(pool, cb);
+		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
+		free(cb);
+	}
+out_unlock:
 	cg_wunlock(&pool->data_lock);
 
 	if (opt_protocol) {
@@ -1623,13 +2462,10 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	}
 	free(coinbase1);
 	free(coinbase2);
-	free(cb1);
-	free(cb2);
 
 	/* A notify message is the closest stratum gets to a getwork */
 	pool->getwork_requested++;
 	total_getworks++;
-	ret = true;
 	if (pool == current_pool())
 		opt_work_update = true;
 out:
@@ -1641,12 +2477,17 @@ static bool parse_diff(struct pool *pool, json_t *val)
 	double old_diff, diff;
 
 	diff = json_number_value(json_array_get(val, 0));
-	if (diff == 0)
+	if (diff <= 0)
 		return false;
 
+	/* We can only change one diff per notify so assume diffs are being
+	 * stacked for successive notifies. */
 	cg_wlock(&pool->data_lock);
-	old_diff = pool->swork.diff;
-	pool->swork.diff = diff;
+	if (pool->next_diff)
+		pool->diff_after = diff;
+	else
+		pool->next_diff = diff;
+	old_diff = pool->sdiff;
 	cg_wunlock(&pool->data_lock);
 
 	if (old_diff != diff) {
@@ -1656,11 +2497,45 @@ static bool parse_diff(struct pool *pool, json_t *val)
 			applog(LOG_NOTICE, "Pool %d difficulty changed to %d",
 			       pool->pool_no, idiff);
 		else
-			applog(LOG_NOTICE, "Pool %d difficulty changed to %f",
+			applog(LOG_NOTICE, "Pool %d difficulty changed to %.1f",
 			       pool->pool_no, diff);
 	} else
 		applog(LOG_DEBUG, "Pool %d difficulty set to %f", pool->pool_no,
 		       diff);
+
+	return true;
+}
+
+static bool parse_extranonce(struct pool *pool, json_t *val)
+{
+	char s[RBUFSIZE], *nonce1;
+	int n2size;
+
+	nonce1 = json_array_string(val, 0);
+	if (!valid_hex(nonce1)) {
+		applog(LOG_INFO, "Failed to get valid nonce1 in parse_extranonce");
+		return false;
+	}
+	n2size = json_integer_value(json_array_get(val, 1));
+	if (!n2size) {
+		applog(LOG_INFO, "Failed to get valid n2size in parse_extranonce");
+		free(nonce1);
+		return false;
+	}
+
+	cg_wlock(&pool->data_lock);
+	free(pool->nonce1);
+	pool->nonce1 = nonce1;
+	pool->n1_len = strlen(nonce1) / 2;
+	free(pool->nonce1bin);
+	pool->nonce1bin = (unsigned char *)calloc(pool->n1_len, 1);
+	if (unlikely(!pool->nonce1bin))
+		quithere(1, "Failed to calloc pool->nonce1bin");
+	hex2bin(pool->nonce1bin, pool->nonce1, pool->n1_len);
+	pool->n2size = n2size;
+	cg_wunlock(&pool->data_lock);
+
+	applog(LOG_NOTICE, "Pool %d extranonce change requested", pool->pool_no);
 
 	return true;
 }
@@ -1678,22 +2553,51 @@ static bool parse_reconnect(struct pool *pool, json_t *val)
 {
 	char *sockaddr_url, *stratum_port, *tmp;
 	char *url, *port, address[256];
+	int port_no;
 
 	memset(address, 0, 255);
 	url = (char *)json_string_value(json_array_get(val, 0));
 	if (!url)
 		url = pool->sockaddr_url;
+	else {
+		char *dot_pool, *dot_reconnect;
+		dot_pool = strchr(pool->sockaddr_url, '.');
+		if (!dot_pool) {
+			applog(LOG_ERR, "Denied stratum reconnect request for pool without domain '%s'",
+			       pool->sockaddr_url);
+			return false;
+		}
+		dot_reconnect = strchr(url, '.');
+		if (!dot_reconnect) {
+			applog(LOG_ERR, "Denied stratum reconnect request to url without domain '%s'",
+			       url);
+			return false;
+		}
+		if (strcmp(dot_pool, dot_reconnect)) {
+			applog(LOG_ERR, "Denied stratum reconnect request to non-matching domain url '%s'",
+				pool->sockaddr_url);
+			return false;
+		}
+	}
 
-	port = (char *)json_string_value(json_array_get(val, 1));
-	if (!port)
-		port = pool->stratum_port;
+	port_no = json_integer_value(json_array_get(val, 1));
+	if (port_no) {
+		port = alloca(256);
+		sprintf(port, "%d", port_no);
+	} else {
+		port = (char *)json_string_value(json_array_get(val, 1));
+		if (!port)
+			port = pool->stratum_port;
+	}
 
-	sprintf(address, "%s:%s", url, port);
+	snprintf(address, 254, "%s:%s", url, port);
 
 	if (!extract_sockaddr(address, &sockaddr_url, &stratum_port))
 		return false;
 
-	applog(LOG_NOTICE, "Reconnect requested from pool %d to %s", pool->pool_no, address);
+	applog(LOG_WARNING, "Stratum reconnect requested from pool %d to %s", pool->pool_no, address);
+
+	clear_pool_work(pool);
 
 	mutex_lock(&pool->stratum_lock);
 	__suspend_stratum(pool);
@@ -1706,21 +2610,37 @@ static bool parse_reconnect(struct pool *pool, json_t *val)
 	free(tmp);
 	mutex_unlock(&pool->stratum_lock);
 
-	if (!restart_stratum(pool))
+	return restart_stratum(pool);
+}
+
+static bool send_version(struct pool *pool, json_t *val)
+{
+	json_t *id_val = json_object_get(val, "id");
+	char s[RBUFSIZE];
+	int id;
+
+	if (!id_val)
+		return false;
+	id = json_integer_value(json_object_get(val, "id"));
+
+	sprintf(s, "{\"id\": %d, \"result\": \""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\", \"error\": null}", id);
+	if (!stratum_send(pool, s, strlen(s)))
 		return false;
 
 	return true;
 }
 
-static bool send_version(struct pool *pool, json_t *val)
+static bool send_pong(struct pool *pool, json_t *val)
 {
+	json_t *id_val = json_object_get(val, "id");
 	char s[RBUFSIZE];
-	int id = json_integer_value(json_object_get(val, "id"));
-	
-	if (!id)
-		return false;
+	int id;
 
-	sprintf(s, "{\"id\": %d, \"result\": \""PACKAGE"/"VERSION"\", \"error\": null}", id);
+	if (!id_val)
+		return false;
+	id = json_integer_value(json_object_get(val, "id"));
+
+	sprintf(s, "{\"id\": %d, \"result\": \"pong\", \"error\": null}", id);
 	if (!stratum_send(pool, s, strlen(s)))
 		return false;
 
@@ -1740,6 +2660,28 @@ static bool show_message(struct pool *pool, json_t *val)
 	return true;
 }
 
+static bool parse_vmask(struct pool *pool, json_t *params)
+{
+	bool ret = false;
+
+	if (!params) {
+		applog(LOG_INFO, "No params with parse_vmask given for pool %d",
+		       pool->pool_no);
+		goto out;
+	}
+	if (json_is_array(params))
+		params = json_array_get(params, 0);
+	if (!json_is_string(params) || !json_string_length(params)) {
+		applog(LOG_INFO, "Params invalid string for parse_vmask for pool %d",
+		       pool->pool_no);
+		goto out;
+	}
+	pool->vmask = set_vmask(pool, params);
+	ret = true;
+out:
+	return ret;
+}
+
 bool parse_method(struct pool *pool, char *s)
 {
 	json_t *val = NULL, *method, *err_val, *params;
@@ -1748,19 +2690,17 @@ bool parse_method(struct pool *pool, char *s)
 	char *buf;
 
 	if (!s)
-		return ret;
+		goto out;
 
 	val = JSON_LOADS(s, &err);
 	if (!val) {
 		applog(LOG_INFO, "JSON decode failed(%d): %s", err.line, err.text);
-		return ret;
+		goto out;
 	}
 
 	method = json_object_get(val, "method");
-	if (!method) {
-		json_decref(val);
-		return ret;
-	}
+	if (!method)
+		goto out_decref;
 	err_val = json_object_get(val, "error");
 	params = json_object_get(val, "params");
 
@@ -1772,52 +2712,132 @@ bool parse_method(struct pool *pool, char *s)
 		else
 			ss = strdup("(unknown reason)");
 
-		applog(LOG_INFO, "JSON-RPC method decode failed: %s", ss);
-
-		json_decref(val);
+		applog(LOG_INFO, "JSON-RPC method decode of %s failed: %s", s, ss);
 		free(ss);
-
-		return ret;
+		goto out_decref;
 	}
 
 	buf = (char *)json_string_value(method);
-	if (!buf) {
-		json_decref(val);
-		return ret;
-	}
+	if (!buf)
+		goto out_decref;
 
 	if (!strncasecmp(buf, "mining.notify", 13)) {
 		if (parse_notify(pool, params))
 			pool->stratum_notify = ret = true;
 		else
 			pool->stratum_notify = ret = false;
-		json_decref(val);
-		return ret;
+		goto out_decref;
 	}
 
-	if (!strncasecmp(buf, "mining.set_difficulty", 21) && parse_diff(pool, params)) {
-		ret = true;
-		json_decref(val);
-		return ret;
+	if (!strncasecmp(buf, "mining.set_difficulty", 21)) {
+		ret = parse_diff(pool, params);
+		goto out_decref;
 	}
 
-	if (!strncasecmp(buf, "client.reconnect", 16) && parse_reconnect(pool, params)) {
-		ret = true;
-		json_decref(val);
-		return ret;
+	if (!strncasecmp(buf, "mining.set_extranonce", 21)) {
+		ret = parse_extranonce(pool, params);
+		goto out_decref;
 	}
 
-	if (!strncasecmp(buf, "client.get_version", 18) && send_version(pool, val)) {
-		ret = true;
-		json_decref(val);
-		return ret;
+	if (!strncasecmp(buf, "client.reconnect", 16)) {
+		ret = parse_reconnect(pool, params);
+		goto out_decref;
 	}
 
-	if (!strncasecmp(buf, "client.show_message", 19) && show_message(pool, params)) {
-		ret = true;
-		json_decref(val);
-		return ret;
+	if (!strncasecmp(buf, "client.get_version", 18)) {
+		ret =  send_version(pool, val);
+		goto out_decref;
 	}
+
+	if (!strncasecmp(buf, "client.show_message", 19)) {
+		ret = show_message(pool, params);
+		goto out_decref;
+	}
+
+	if (!strncasecmp(buf, "mining.ping", 11)) {
+		applog(LOG_INFO, "Pool %d ping", pool->pool_no);
+		ret = send_pong(pool, val);
+		goto out_decref;
+	}
+
+	if (!strncasecmp(buf, "mining.set_version_mask", 23)) {
+		ret = parse_vmask(pool, params);
+		goto out_decref;
+	}
+	applog(LOG_INFO, "Unknown JSON-RPC from pool %d: %s", pool->pool_no, s);
+out_decref:
+	json_decref(val);
+out:
+	return ret;
+}
+
+bool subscribe_extranonce(struct pool *pool)
+{
+	json_t *val = NULL, *res_val, *err_val;
+	char s[RBUFSIZE], *sret = NULL;
+	json_error_t err;
+	bool ret = false;
+
+	sprintf(s, "{\"id\": %d, \"method\": \"mining.extranonce.subscribe\", \"params\": []}",
+		swork_id++);
+
+	if (!stratum_send(pool, s, strlen(s)))
+		return ret;
+
+	/* Parse all data in the queue and anything left should be the response */
+	while (42) {
+		if (!socket_full(pool, DEFAULT_SOCKWAIT / 30)) {
+			applog(LOG_DEBUG, "Timed out waiting for response extranonce.subscribe");
+			/* some pool doesnt send anything, so this is normal */
+			ret = true;
+			goto out;
+		}
+
+		sret = recv_line(pool);
+		if (!sret)
+			return ret;
+		if (parse_method(pool, sret))
+			free(sret);
+		else
+			break;
+	}
+
+	val = JSON_LOADS(sret, &err);
+	free(sret);
+	res_val = json_object_get(val, "result");
+	err_val = json_object_get(val, "error");
+
+	if (!res_val || json_is_false(res_val) || (err_val && !json_is_null(err_val)))  {
+		char *ss;
+
+		if (err_val) {
+			ss = __json_array_string(err_val, 1);
+			if (!ss)
+				ss = (char *)json_string_value(err_val);
+			if (ss && (strcmp(ss, "Method 'subscribe' not found for service 'mining.extranonce'") == 0)) {
+				applog(LOG_INFO, "Cannot subscribe to mining.extranonce for pool %d", pool->pool_no);
+				ret = true;
+				goto out;
+			}
+			if (ss && (strcmp(ss, "Unrecognized request provided") == 0)) {
+				applog(LOG_INFO, "Cannot subscribe to mining.extranonce for pool %d", pool->pool_no);
+				ret = true;
+				goto out;
+			}
+			ss = json_dumps(err_val, JSON_INDENT(3));
+		}
+		else
+			ss = strdup("(unknown reason)");
+		applog(LOG_INFO, "Pool %d JSON extranonce subscribe failed: %s", pool->pool_no, ss);
+		free(ss);
+
+		goto out;
+	}
+
+	ret = true;
+	applog(LOG_INFO, "Stratum extranonce subscribe for pool %d", pool->pool_no);
+
+out:
 	json_decref(val);
 	return ret;
 }
@@ -1861,6 +2881,8 @@ bool auth_stratum(struct pool *pool)
 		applog(LOG_INFO, "pool %d JSON stratum auth failed: %s", pool->pool_no, ss);
 		free(ss);
 
+		suspend_stratum(pool);
+
 		goto out;
 	}
 
@@ -1869,6 +2891,11 @@ bool auth_stratum(struct pool *pool)
 	pool->probed = true;
 	successful_connect = true;
 
+	if (opt_suggest_diff) {
+		sprintf(s, "{\"id\": %d, \"method\": \"mining.suggest_difficulty\", \"params\": [%d]}",
+			swork_id++, opt_suggest_diff);
+		stratum_send(pool, s, strlen(s));
+	}
 out:
 	json_decref(val);
 	return ret;
@@ -1968,7 +2995,7 @@ static bool socks5_negotiate(struct pool *pool, int sockd)
 		len = 255;
 	uclen = len;
 	buf[4] = (uclen & 0xff);
-	memcpy(buf + 5, pool->sockaddr_url, len);
+	cg_memcpy(buf + 5, pool->sockaddr_url, len);
 	port = atoi(pool->stratum_port);
 	buf[5 + len] = (port >> 8);
 	buf[6 + len] = (port & 0xff);
@@ -2058,7 +3085,7 @@ static bool socks4_negotiate(struct pool *pool, int sockd, bool socks4a)
 		len = strlen(pool->sockaddr_url);
 		if (len > 255)
 			len = 255;
-		memcpy(&buf[16], pool->sockaddr_url, len);
+		cg_memcpy(&buf[16], pool->sockaddr_url, len);
 		len += 16;
 		buf[len++] = '\0';
 		send(sockd, buf, len, 0);
@@ -2112,7 +3139,7 @@ static bool sock_connecting(void)
 }
 static bool setup_stratum_socket(struct pool *pool)
 {
-	struct addrinfo servinfobase, *servinfo, *hints, *p;
+	struct addrinfo *servinfo, hints, *p;
 	char *sockaddr_url, *sockaddr_port;
 	int sockd;
 
@@ -2123,11 +3150,9 @@ static bool setup_stratum_socket(struct pool *pool)
 	pool->sock = 0;
 	mutex_unlock(&pool->stratum_lock);
 
-	hints = &pool->stratum_hints;
-	memset(hints, 0, sizeof(struct addrinfo));
-	hints->ai_family = AF_UNSPEC;
-	hints->ai_socktype = SOCK_STREAM;
-	servinfo = &servinfobase;
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
 
 	if (!pool->rpc_proxy && opt_socks_proxy) {
 		pool->rpc_proxy = opt_socks_proxy;
@@ -2142,7 +3167,7 @@ static bool setup_stratum_socket(struct pool *pool)
 		sockaddr_url = pool->sockaddr_url;
 		sockaddr_port = pool->stratum_port;
 	}
-	if (getaddrinfo(sockaddr_url, sockaddr_port, hints, &servinfo) != 0) {
+	if (getaddrinfo(sockaddr_url, sockaddr_port, &hints, &servinfo) != 0) {
 		if (!pool->probed) {
 			applog(LOG_WARNING, "Failed to resolve (?wrong URL) %s:%s",
 			       sockaddr_url, sockaddr_port);
@@ -2166,7 +3191,7 @@ static bool setup_stratum_socket(struct pool *pool)
 		 * we can connect to quickly. */
 		noblock_socket(sockd);
 		if (connect(sockd, p->ai_addr, p->ai_addrlen) == -1) {
-			struct timeval tv_timeout = {1, 0};
+			struct timeval tv_timeout = {2, 0};
 			int selret;
 			fd_set rw;
 
@@ -2175,6 +3200,7 @@ static bool setup_stratum_socket(struct pool *pool)
 				applog(LOG_DEBUG, "Failed sock connect");
 				continue;
 			}
+retry:
 			FD_ZERO(&rw);
 			FD_SET(sockd, &rw);
 			selret = select(sockd + 1, NULL, &rw, NULL, &tv_timeout);
@@ -2190,6 +3216,8 @@ static bool setup_stratum_socket(struct pool *pool)
 					break;
 				}
 			}
+			if (selret < 0 && interrupted())
+				goto retry;
 			CLOSESOCKET(sockd);
 			applog(LOG_DEBUG, "Select timeout/failed connect");
 			continue;
@@ -2239,9 +3267,7 @@ static bool setup_stratum_socket(struct pool *pool)
 	}
 
 	if (!pool->sockbuf) {
-		pool->sockbuf = calloc(RBUFSIZE, 1);
-		if (!pool->sockbuf)
-			quithere(1, "Failed to calloc pool sockbuf");
+		pool->sockbuf = cgcalloc(RBUFSIZE, 1);
 		pool->sockbuf_size = RBUFSIZE;
 	}
 
@@ -2290,7 +3316,7 @@ void suspend_stratum(struct pool *pool)
 bool initiate_stratum(struct pool *pool)
 {
 	bool ret = false, recvd = false, noresume = false, sockd = false;
-	char s[RBUFSIZE], *sret = NULL, *nonce1, *sessionid;
+	char s[RBUFSIZE], *sret = NULL, *nonce1, *sessionid, *tmp;
 	json_t *val = NULL, *res_val, *err_val;
 	json_error_t err;
 	int n2size;
@@ -2306,12 +3332,37 @@ resend:
 	if (recvd) {
 		/* Get rid of any crap lying around if we're resending */
 		clear_sock(pool);
+	}
+
+	/* Attempt to configure stratum protocol feature set first. */
+#ifdef USE_GEKKO
+	configure_stratum_mining(pool);
+	if (!pool->sock) {
+		//repair damage done by configure_stratum_mining
+		if (!setup_stratum_socket(pool)) {
+			sockd = false;
+			goto out;
+		}
+
+		sockd = true;
+
+		if (recvd) {
+			/* Get rid of any crap lying around if we're resending */
+			clear_sock(pool);
+		}
+	}
+#else
+	if (!configure_stratum_mining(pool))
+		goto out;
+#endif
+
+	if (recvd) {
 		sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": []}", swork_id++);
 	} else {
 		if (pool->sessionid)
-			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION"\", \"%s\"]}", swork_id++, pool->sessionid);
+			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\", \"%s\"]}", swork_id++, pool->sessionid);
 		else
-			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION"\"]}", swork_id++);
+			sprintf(s, "{\"id\": %d, \"method\": \"mining.subscribe\", \"params\": [\""PACKAGE"/"VERSION""STRATUM_USER_AGENT"\"]}", swork_id++);
 	}
 
 	if (__stratum_send(pool, s, strlen(s)) != SEND_OK) {
@@ -2323,7 +3374,7 @@ resend:
 		applog(LOG_DEBUG, "Timed out waiting for response in initiate_stratum");
 		goto out;
 	}
-
+rereceive:
 	sret = recv_line(pool);
 	if (!sret)
 		goto out;
@@ -2331,7 +3382,6 @@ resend:
 	recvd = true;
 
 	val = JSON_LOADS(sret, &err);
-	free(sret);
 	if (!val) {
 		applog(LOG_INFO, "JSON decode failed(%d): %s", err.line, err.text);
 		goto out;
@@ -2339,6 +3389,17 @@ resend:
 
 	res_val = json_object_get(val, "result");
 	err_val = json_object_get(val, "error");
+
+	if (!res_val) {
+		/* Check for a method just in case */
+		json_t *method_val = json_object_get(val, "method");
+
+		if (method_val && parse_method(pool, sret)) {
+			free(sret);
+			sret = NULL;
+			goto rereceive;
+		}
+	}
 
 	if (!res_val || json_is_null(res_val) ||
 	    (err_val && !json_is_null(err_val))) {
@@ -2349,7 +3410,7 @@ resend:
 		else
 			ss = strdup("(unknown reason)");
 
-		applog(LOG_INFO, "JSON-RPC decode failed: %s", ss);
+		applog(LOG_INFO, "JSON-RPC decode of message %s failed: %s", sret, ss);
 
 		free(ss);
 
@@ -2360,27 +3421,35 @@ resend:
 	if (!sessionid)
 		applog(LOG_DEBUG, "Failed to get sessionid in initiate_stratum");
 	nonce1 = json_array_string(res_val, 1);
-	if (!nonce1) {
-		applog(LOG_INFO, "Failed to get nonce1 in initiate_stratum");
+	if (!valid_hex(nonce1)) {
+		applog(LOG_INFO, "Failed to get valid nonce1 in initiate_stratum");
 		free(sessionid);
+		free(nonce1);
 		goto out;
 	}
 	n2size = json_integer_value(json_array_get(res_val, 2));
-	if (!n2size) {
-		applog(LOG_INFO, "Failed to get n2size in initiate_stratum");
+	if (n2size < 2 || n2size > 16) {
+		applog(LOG_INFO, "Failed to get valid n2size in initiate_stratum");
 		free(sessionid);
 		free(nonce1);
 		goto out;
 	}
 
+	if (sessionid && pool->sessionid && !strcmp(sessionid, pool->sessionid)) {
+		applog(LOG_NOTICE, "Pool %d successfully negotiated resume with the same session ID",
+		       pool->pool_no);
+	}
+
 	cg_wlock(&pool->data_lock);
+	tmp = pool->sessionid;
 	pool->sessionid = sessionid;
+	free(tmp);
+	tmp = pool->nonce1;
 	pool->nonce1 = nonce1;
+	free(tmp);
 	pool->n1_len = strlen(nonce1) / 2;
 	free(pool->nonce1bin);
-	pool->nonce1bin = calloc(pool->n1_len, 1);
-	if (unlikely(!pool->nonce1bin))
-		quithere(1, "Failed to calloc pool->nonce1bin");
+	pool->nonce1bin = cgcalloc(pool->n1_len, 1);
 	hex2bin(pool->nonce1bin, pool->nonce1, pool->n1_len);
 	pool->n2size = n2size;
 	cg_wunlock(&pool->data_lock);
@@ -2394,7 +3463,8 @@ out:
 		if (!pool->stratum_url)
 			pool->stratum_url = pool->sockaddr_url;
 		pool->stratum_active = true;
-		pool->swork.diff = 1;
+		pool->next_diff = pool->diff_after = 0;
+		pool->sdiff = 1;
 		if (opt_protocol) {
 			applog(LOG_DEBUG, "Pool %d confirmed mining.subscribe with extranonce1 %s extran2size %d",
 			       pool->pool_no, pool->nonce1, pool->n2size);
@@ -2421,18 +3491,29 @@ out:
 	}
 
 	json_decref(val);
+	free(sret);
 	return ret;
 }
 
 bool restart_stratum(struct pool *pool)
 {
+	bool ret = false;
+
 	if (pool->stratum_active)
 		suspend_stratum(pool);
 	if (!initiate_stratum(pool))
-		return false;
+		goto out;
+	if (pool->extranonce_subscribe && !subscribe_extranonce(pool))
+		goto out;
 	if (!auth_stratum(pool))
-		return false;
-	return true;
+		goto out;
+	ret = true;
+out:
+	if (!ret)
+		pool_died(pool);
+	else
+		stratum_resumed(pool);
+	return ret;
 }
 
 void dev_error(struct cgpu_info *dev, enum dev_reason reason)
@@ -2477,21 +3558,22 @@ void dev_error(struct cgpu_info *dev, enum dev_reason reason)
 /* Realloc an existing string to fit an extra string s, appending s to it. */
 void *realloc_strcat(char *ptr, char *s)
 {
-	size_t old = strlen(ptr), len = strlen(s);
+	size_t old = 0, len = strlen(s);
 	char *ret;
 
 	if (!len)
 		return ptr;
+	if (ptr)
+		old = strlen(ptr);
 
 	len += old + 1;
-	align_len(&len);
+	ret = cgmalloc(len);
 
-	ret = malloc(len);
-	if (unlikely(!ret))
-		quithere(1, "Failed to malloc");
-
-	sprintf(ret, "%s%s", ptr, s);
-	free(ptr);
+	if (ptr) {
+		sprintf(ret, "%s%s", ptr, s);
+		free(ptr);
+	} else
+		sprintf(ret, "%s", s);
 	return ret;
 }
 
@@ -2512,9 +3594,7 @@ void *str_text(char *ptr)
 
 	uptr = (unsigned char *)ptr;
 
-	ret = txt = malloc(strlen(ptr)*4+5); // Guaranteed >= needed
-	if (unlikely(!txt))
-		quithere(1, "Failed to malloc txt");
+	ret = txt = cgmalloc(strlen(ptr) * 4 + 5); // Guaranteed >= needed
 
 	do {
 		if (*uptr < ' ' || *uptr > '~') {
@@ -2531,16 +3611,19 @@ void *str_text(char *ptr)
 
 void RenameThread(const char* name)
 {
+	char buf[16];
+
+	snprintf(buf, sizeof(buf), "cg@%s", name);
 #if defined(PR_SET_NAME)
 	// Only the first 15 characters are used (16 - NUL terminator)
-	prctl(PR_SET_NAME, name, 0, 0, 0);
+	prctl(PR_SET_NAME, buf, 0, 0, 0);
 #elif (defined(__FreeBSD__) || defined(__OpenBSD__))
-	pthread_set_name_np(pthread_self(), name);
+	pthread_set_name_np(pthread_self(), buf);
 #elif defined(MAC_OSX)
-	pthread_setname_np(name);
+	pthread_setname_np(buf);
 #else
-	// Prevent warnings for unused parameters...
-	(void)name;
+	// Prevent warnings
+	(void)buf;
 #endif
 }
 
@@ -2571,19 +3654,24 @@ void _cgsem_post(cgsem_t *cgsem, const char *file, const char *func, const int l
 	const char buf = 1;
 	int ret;
 
+retry:
 	ret = write(cgsem->pipefd[1], &buf, 1);
 	if (unlikely(ret == 0))
 		applog(LOG_WARNING, "Failed to write errno=%d" IN_FMT_FFL, errno, file, func, line);
+	else if (unlikely(ret < 0 && interrupted()))
+		goto retry;
 }
 
 void _cgsem_wait(cgsem_t *cgsem, const char *file, const char *func, const int line)
 {
 	char buf;
 	int ret;
-
+retry:
 	ret = read(cgsem->pipefd[0], &buf, 1);
 	if (unlikely(ret == 0))
 		applog(LOG_WARNING, "Failed to read errno=%d" IN_FMT_FFL, errno, file, func, line);
+	else if (unlikely(ret < 0 && interrupted()))
+		goto retry;
 }
 
 void cgsem_destroy(cgsem_t *cgsem)
@@ -2600,6 +3688,7 @@ int _cgsem_mswait(cgsem_t *cgsem, int ms, const char *file, const char *func, co
 	fd_set rd;
 	char buf;
 
+retry:
 	fd = cgsem->pipefd[0];
 	FD_ZERO(&rd);
 	FD_SET(fd, &rd);
@@ -2612,6 +3701,8 @@ int _cgsem_mswait(cgsem_t *cgsem, int ms, const char *file, const char *func, co
 	}
 	if (likely(!ret))
 		return ETIMEDOUT;
+	if (interrupted())
+		goto retry;
 	quitfrom(1, file, func, line, "Failed to sem_timedwait errno=%d cgsem=0x%p", errno, cgsem);
 	/* We don't reach here */
 	return 0;
@@ -2633,6 +3724,8 @@ void cgsem_reset(cgsem_t *cgsem)
 		ret = select(fd + 1, &rd, NULL, NULL, &timeout);
 		if (ret > 0)
 			ret = read(fd, &buf, 1);
+		else if (unlikely(ret < 0 && interrupted()))
+			ret = 1;
 	} while (ret > 0);
 }
 #else
@@ -2651,25 +3744,30 @@ void _cgsem_post(cgsem_t *cgsem, const char *file, const char *func, const int l
 
 void _cgsem_wait(cgsem_t *cgsem, const char *file, const char *func, const int line)
 {
-	if (unlikely(sem_wait(cgsem)))
+retry:
+	if (unlikely(sem_wait(cgsem))) {
+		if (interrupted())
+			goto retry;
 		quitfrom(1, file, func, line, "Failed to sem_wait errno=%d cgsem=0x%p", errno, cgsem);
+	}
 }
 
 int _cgsem_mswait(cgsem_t *cgsem, int ms, const char *file, const char *func, const int line)
 {
-	struct timespec abs_timeout, ts_now;
-	struct timeval tv_now;
+	struct timespec abs_timeout, tdiff;
 	int ret;
 
-	cgtime(&tv_now);
-	timeval_to_spec(&ts_now, &tv_now);
-	ms_to_timespec(&abs_timeout, ms);
-	timeraddspec(&abs_timeout, &ts_now);
+	cgcond_time(&abs_timeout);
+	ms_to_timespec(&tdiff, ms);
+	timeraddspec(&abs_timeout, &tdiff);
+retry:
 	ret = sem_timedwait(cgsem, &abs_timeout);
 
 	if (ret) {
 		if (likely(sock_timeout()))
 			return ETIMEDOUT;
+		if (interrupted())
+			goto retry;
 		quitfrom(1, file, func, line, "Failed to sem_timedwait errno=%d cgsem=0x%p", errno, cgsem);
 	}
 	return 0;
@@ -2681,6 +3779,8 @@ void cgsem_reset(cgsem_t *cgsem)
 
 	do {
 		ret = sem_trywait(cgsem);
+		if (unlikely(ret < 0 && interrupted()))
+			ret = 0;
 	} while (!ret);
 }
 
@@ -2716,9 +3816,7 @@ bool cg_completion_timeout(void *fn, void *fnarg, int timeout)
 	pthread_t pthread;
 	bool ret = false;
 
-	cgc = malloc(sizeof(struct cg_completion));
-	if (unlikely(!cgc))
-		return ret;
+	cgc = cgmalloc(sizeof(struct cg_completion));
 	cgsem_init(&cgc->cgsem);
 	cgc->fn = fn;
 	cgc->fnarg = fnarg;
@@ -2732,4 +3830,24 @@ bool cg_completion_timeout(void *fn, void *fnarg, int timeout)
 	} else
 		pthread_cancel(pthread);
 	return !ret;
+}
+
+void _cg_memcpy(void *dest, const void *src, unsigned int n, const char *file, const char *func, const int line)
+{
+	if (unlikely(n < 1 || n > (1ul << 31))) {
+		applog(LOG_ERR, "ERR: Asked to memcpy %u bytes from %s %s():%d",
+		       n, file, func, line);
+		return;
+	}
+	if (unlikely(!dest)) {
+		applog(LOG_ERR, "ERR: Asked to memcpy %u bytes to NULL from %s %s():%d",
+		       n, file, func, line);
+		return;
+	}
+	if (unlikely(!src)) {
+		applog(LOG_ERR, "ERR: Asked to memcpy %u bytes from NULL from %s %s():%d",
+		       n, file, func, line);
+		return;
+	}
+	memcpy(dest, src, n);
 }

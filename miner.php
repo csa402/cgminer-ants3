@@ -1,17 +1,29 @@
 <?php
+#
+# v42.14
+# Copyright 2011-2018 Kano
+# Licensed under the GNU General Public License version 3,
+#  or (at your option) any later version.
+#
 session_start();
 #
-global $doctype, $title, $miner, $port, $readonly, $notify, $rigs;
+global $ect;
+$ect = 'ECTABLE';
+#
+global $doctype, $title, $miner, $port, $readonly, $notify;
+global $rigport, $rigs, $rignames, $rigbuttons;
 global $mcast, $mcastexpect, $mcastaddr, $mcastport, $mcastcode;
 global $mcastlistport, $mcasttimeout, $mcastretries, $allowgen;
 global $rigipsecurity, $rigtotals, $forcerigtotals;
 global $socksndtimeoutsec, $sockrcvtimeoutsec;
 global $checklastshare, $poolinputs, $hidefields;
 global $ignorerefresh, $changerefresh, $autorefresh;
-global $allowcustompages, $customsummarypages;
+global $allowcustompages, $customsummarypages, $user_pages;
 global $miner_font_family, $miner_font_size;
-global $bad_font_family, $bad_font_size;
-global $colouroverride, $placebuttons, $userlist;
+global $bad_font_family, $bad_font_size, $add_css_names;
+global $colouroverride, $placebuttons, $userlist, $mmcmd;
+global $avatmaxmed, $avatmaxhi, $avatempmed, $avatemphi, $avaghsmmmin;
+global $s9tempmed, $s9temphi, $s9chainmin, $s9acn;
 #
 $doctype = "<!DOCTYPE html>\n";
 #
@@ -44,9 +56,19 @@ $checklastshare = true;
 # N.B. also if $readonly is true, it will not display the fields
 $poolinputs = false;
 #
+# Default port to use if any $rigs entries don't specify the port number
+$rigport = 4028;
+#
 # Set $rigs to an array of your cgminer rigs that are running
-#  format: 'IP:Port' or 'Host:Port' or 'Host:Port:Name'
+#  format: 'IP' or 'Host' or 'IP:Port' or 'Host:Port' or 'Host:Port:Name'
 $rigs = array('127.0.0.1:4028');
+#
+# Set $rignames to false, or one of 'ip' or 'ipx'
+#  this says what to use if $rigs doesn't have a 'name'
+$rignames = false;
+#
+# Set $rigbuttons to false to display a link rather than a button
+$rigbuttons = true;
 #
 # Set $mcast to true to look for your rigs and ignore $rigs
 $mcast = false;
@@ -105,6 +127,20 @@ $ignorerefresh = false;
 $changerefresh = true;
 $autorefresh = 0;
 #
+# Settings for avalon miners - adjust in myminer.php based
+# on the type of avalon miner you have
+$avatmaxmed = 100;
+$avatmaxhi = 110;
+$avatempmed = 32;
+$avatemphi = 40;
+$avaghsmmmin = 8000;
+#
+# Settings for s9 miners - adjust in myminer.php
+$s9tempmed = 100;
+$s9temphi = 110;
+$s9chainmin = 4000;
+$s9acn = 63;
+#
 # Should we allow custom pages?
 # (or just completely ignore them and don't display the buttons)
 $allowcustompages = true;
@@ -115,71 +151,490 @@ $allowcustompages = true;
 $mobilepage = array(
  'DATE' => null,
  'RIGS' => null,
- 'SUMMARY' => array('Elapsed', 'MHS av', 'Found Blocks=Blks', 'Accepted', 'Rejected=Rej', 'Utility'),
- 'DEVS+NOTIFY' => array('DEVS.Name=Name', 'DEVS.ID=ID', 'DEVS.Status=Status', 'DEVS.Temperature=Temp',
-			'DEVS.MHS av=MHS av', 'DEVS.Accepted=Accept', 'DEVS.Rejected=Rej',
-			'DEVS.Utility=Utility', 'NOTIFY.Last Not Well=Not Well'),
- 'POOL' => array('POOL', 'Status', 'Accepted', 'Rejected=Rej', 'Last Share Time'));
+ 'SUMMARY' => array('Elapsed', 'MHS av', 'MHS 5m', 'Found Blocks=Blks',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Hardware Errors=HW',
+			'Work Utility=WU'),
+ 'DEVS+NOTIFY' => array('DEVS.Name=Name', 'DEVS.ID=ID', 'DEVS.Status=Status',
+			'DEVS.Temperature=Temp', 'DEVS.MHS av=MHS av',
+			'DEVS.MHS 5m=MHS 5m', 'DEVS.Difficulty Accepted=DiffA',
+			'DEVS.Difficulty Rejected=DiffR',
+			'DEVS.Work Utility=WU',
+			'NOTIFY.Last Not Well=Not Well'),
+ 'POOL' => array('POOL', 'Status', 'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR', 'Last Share Time=LST'));
 $mobilesum = array(
- 'SUMMARY' => array('MHS av', 'Found Blocks', 'Accepted', 'Rejected', 'Utility'),
- 'DEVS+NOTIFY' => array('DEVS.MHS av', 'DEVS.Accepted', 'DEVS.Rejected', 'DEVS.Utility'),
- 'POOL' => array('Accepted', 'Rejected'));
+ 'SUMMARY' => array('MHS av', 'MHS 5m', 'Found Blocks', 'Difficulty Accepted',
+			'Difficulty Rejected', 'Hardware Errors',
+			'Work Utility'),
+ 'DEVS+NOTIFY' => array('DEVS.MHS av', 'DEVS.Difficulty Accepted',
+			'DEVS.Difficulty Rejected'),
+ 'POOL' => array('Difficulty Accepted', 'Difficulty Rejected'));
 #
 $statspage = array(
  'DATE' => null,
  'RIGS' => null,
- 'SUMMARY' => array('Elapsed', 'MHS av', 'Found Blocks=Blks',
-			'Accepted', 'Rejected=Rej', 'Utility',
-			'Hardware Errors=HW Errs', 'Network Blocks=Net Blks',
-			'Work Utility'),
- 'COIN' => array('*'),
+ 'SUMMARY' => array('Elapsed', 'MHS av', 'MHS 5m', 'Found Blocks=Blks',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Work Utility=WU', 'Hardware Errors=HW Errs',
+			'Network Blocks=Net Blks'),
+ 'COIN' => array('Current Block Time','Current Block Hash','Network Difficulty'),
  'STATS' => array('*'));
 #
 $statssum = array(
- 'SUMMARY' => array('MHS av', 'Found Blocks', 'Accepted',
-			'Rejected', 'Utility', 'Hardware Errors',
-			'Work Utility'));
+ 'SUMMARY' => array('MHS av', 'MHS 5m', 'Found Blocks',
+			'Difficulty Accepted', 'Difficulty Rejected',
+			'Work Utility', 'Hardware Errors'));
+#
+$avalonmmflds = array('#', 'MM', 'ID', 'MMID', 'Connecter', 'Elapsed',
+			'Temp=Inflow', 'TMax=Outflow', 'Fan=FanRPM',
+			'FanR=Fan%', 'GEN.AVATHS=TH/s||GHSmm', 'Vi', 'Vo',
+			'Freq', 'Led', 'PG', 'ECHU', 'ECMM', 'Ver');
+#
+$avalonpage = array(
+ 'DATE' => null,
+ 'COIN' => array('Current Block Time','Current Block Hash','Network Difficulty'),
+ 'SUMMARY' => array('#', 'Elapsed', 'GEN.THS av=TH/s av||MHS av',
+			'GEN.THS 5m=TH/s 5m||MHS 5m',
+			'Found Blocks=Blks',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Work Utility=WU', 'Hardware Errors=HW Errs',
+			'Network Blocks=Net Blks', 'Best Share'),
+ $ect => null, # show the EC* code table
+ 'MM' => $avalonmmflds
+);
+#
+$avalonsum = array(
+ 'SUMMARY' => array('#', 'GEN.THS av', 'MHS av', 'GEN.THS 5m', 'MHS 5m',
+			'Found Blocks', 'Difficulty Accepted',
+			'Difficulty Rejected', 'Work Utility',
+			'Hardware Errors'),
+ 'MM' => array('#', 'GEN.AVATHS', 'GHSmm'));
+#
+$avalonext = array(
+ 'COIN' => array(
+  'group' => array('Current Block Hash', 'Network Difficulty'),
+  'calc' => array('Current Block Time' => 'min')),
+ 'SUMMARY' => array(
+  'gen' => array('THS av' => 'MHS av / 1000000.0',
+		'THS 5m' => 'MHS 5m / 1000000.0')),
+ 'MM' => array(
+  'gen' => array('AVATHS' => 'GHSmm / 1000.0'))
+);
+#
+$avalonspage = array(
+ 'DATE' => null,
+ 'COIN' => array('Current Block Time','Current Block Hash','Network Difficulty'),
+ $ect => null, # show the EC* code table
+ 'MM0' => $avalonmmflds, # hi temp and low hash
+ 'MM1' => $avalonmmflds, # hi temp only
+ 'MM2' => $avalonmmflds, # low hash only
+ 'MM3' => $avalonmmflds # the rest
+);
+#
+$avalonsmmsum = array('#', 'GEN.AVATHS', 'GHSmm');
+$avalonssum = array(
+ 'MM0' => $avalonsmmsum,
+ 'MM1' => $avalonsmmsum,
+ 'MM2' => $avalonsmmsum,
+ 'MM3' => $avalonsmmsum
+);
+#
+$s9page = array(
+ 'DATE' => null,
+ 'STATS' => array('#', 'Elapsed', 'fan_num', 'GEN.FanA=FanA||fan3',
+		'GEN.FanB=FanB||fan6', 'GEN.TempA=TempA||temp2_6',
+		'GEN.TempB=TempB||temp2_7', 'GEN.TempC=TempC||temp2_8',
+		'GEN.S9THS=TH/s||total_rate',
+		'GEN.AcnA=ChainA||chain_acn6', 'GEN.AcnB=ChainB||chain_acn7',
+		'GEN.AcnC=ChainC||chain_acn8', 'GEN.RateA=RateA||chain_rate6',
+		'GEN.RateB=RateB||chain_rate7', 'GEN.RateC=RateC||chain_rate8')
+);
+#
+$s9sum = array(
+ 'STATS' => array('#', 'GEN.S9THS', 'total_rate')
+);
+#
+function s9fmtsub($match, $num, $ch, $alldata, $warnclass, $errorclass)
+{
+ global $s9tempmed, $s9temphi, $s9chainmin, $s9acn;
+ $lab = '';
+ $ret = '';
+ $class = '';
+ $len = strlen($match);
+ foreach ($alldata as $fld => $val)
+ {
+	$rep = preg_replace('/\d*$/', '', $fld);
+	if ($rep == $match)
+	{
+		if ($val != '' && $val != '0')
+		{
+			if ($num-- > 0)
+				continue;
+			$lab = $ch.substr($fld, $len).': ';
+			$ret = $val;
+			break;
+		}
+	}
+ }
+ if ($ret == '')
+ {
+	$lab = '';
+	$ret = 'none/0';
+	$class = $errorclass;
+ }
+ else
+ {
+	switch($match)
+	{
+	 case 'temp2_':
+		if ($ret == 0 || $ret >= $s9temphi)
+			$class = $errorclass;
+		else
+		{
+			if ($ret >= $s9tempmed)
+				$class = $warnclass;
+		}
+		$ret .= '&deg;C';
+		break;
+	 case 'chain_acn':
+		if ($ret != $s9acn)
+			$class = $warnclass;
+		break;
+	 case 'chain_rate':
+		if ($ret == 0)
+			$class = $errorclass;
+		else
+		{
+			if ($ret < $s9chainmin)
+				$class = $warnclass;
+		}
+		$ret = number_format((float)$ret, 2);
+		break;
+	}
+ }
+ return array($lab.$ret, $class);
+}
+#
+function s9fmt($section, $name, $value, $when, $alldata, $warnclass,
+			$errorclass, $hiclass, $loclass, $totclass)
+{
+ $ret = '';
+ $class = '';
+ if ($section == 'total' && $name != 'S9THS')
+	 return array($ret, $class);
+ switch($name)
+ {
+  case 'FanA':
+	return s9fmtsub('fan', 0, 'f', $alldata, $warnclass, $errorclass);
+  case 'FanB':
+	return s9fmtsub('fan', 1, 'f', $alldata, $warnclass, $errorclass);
+  case 'TempA':
+	return s9fmtsub('temp2_', 0, 't', $alldata, $warnclass, $errorclass);
+  case 'TempB':
+	return s9fmtsub('temp2_', 1, 't', $alldata, $warnclass, $errorclass);
+  case 'TempC':
+	return s9fmtsub('temp2_', 2, 't', $alldata, $warnclass, $errorclass);
+  case 'AcnA':
+	return s9fmtsub('chain_acn', 0, 'a', $alldata, $warnclass, $errorclass);
+  case 'AcnB':
+	return s9fmtsub('chain_acn', 1, 'a', $alldata, $warnclass, $errorclass);
+  case 'AcnC':
+	return s9fmtsub('chain_acn', 2, 'a', $alldata, $warnclass, $errorclass);
+  case 'RateA':
+	return s9fmtsub('chain_rate', 0, 'r', $alldata, $warnclass, $errorclass);
+  case 'RateB':
+	return s9fmtsub('chain_rate', 1, 'r', $alldata, $warnclass, $errorclass);
+  case 'RateC':
+	return s9fmtsub('chain_rate', 2, 'r', $alldata, $warnclass, $errorclass);
+  case 'S9THS':
+	if ($value == 0)
+	{
+		$class = $errorclass;
+		$ret = 0;
+	}
+	else
+		$ret = number_format(floatval($value)/1000.0, 2);
+	break;
+ }
+ return array($ret, $class);
+}
+# use the first non-zero value - allow 1, 2 or 3 parameters
+function s9ghs($ghs1 = 0, $ghs2 = 0, $ghs3 = 0)
+{
+ if ($ghs1 != 0)
+	 return($ghs1);
+ if ($ghs2 != 0)
+	 return($ghs2);
+ if ($ghs3 != 0)
+	 return($ghs3);
+ return 0;
+}
+# set them to a fixed value then use the above custom fmt to find the values
+$s9ext = array(
+ 'STATS' => array(
+  'where' => array(array('ID', '!sub', 'POOL')),
+  'gen' => array('FanA' => '1', 'FanB' => '2', 'TempA' => '3',
+		'TempB' => '4', 'TempC' => '5',
+		'S9THS' => 's9ghs("GHS av","GHS 5s","total_rate")',
+		'AcnA' => '7', 'AcnB' => '8', 'AcnC' => '9', 'RateA' => '10',
+		'RateB' => '11', 'RateC' => '12'),
+  'fmt' => 's9fmt')
+);
 #
 $poolspage = array(
  'DATE' => null,
  'RIGS' => null,
- 'SUMMARY' => array('Elapsed', 'MHS av', 'Found Blocks=Blks', 'Accepted', 'Rejected=Rej',
-			'Utility', 'Hardware Errors=HW Errs', 'Network Blocks=Net Blks',
-			'Work Utility'),
- 'POOL+STATS' => array('STATS.ID=ID', 'POOL.URL=URL', 'POOL.Difficulty Accepted=Diff Acc',
-			'POOL.Difficulty Rejected=Diff Rej',
-			'POOL.Has Stratum=Stratum', 'POOL.Stratum Active=StrAct',
+ 'SUMMARY' => array('Elapsed', 'MHS av', 'MHS 5m', 'Found Blocks=Blks',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Work Utility', 'Hardware Errors=HW',
+			'Network Blocks=Net Blks', 'Best Share'),
+ 'POOL+STATS' => array('STATS.ID=ID', 'POOL.URL=URL',
+			'POOL.Difficulty Accepted=DiffA',
+			'POOL.Difficulty Rejected=DiffR',
+			'POOL.Has Stratum=Stratum',
+			'POOL.Stratum Active=StrAct',
 			'POOL.Has GBT=GBT', 'STATS.Times Sent=TSent',
 			'STATS.Bytes Sent=BSent', 'STATS.Net Bytes Sent=NSent',
 			'STATS.Times Recv=TRecv', 'STATS.Bytes Recv=BRecv',
 			'STATS.Net Bytes Recv=NRecv', 'GEN.AvShr=AvShr'));
 #
 $poolssum = array(
- 'SUMMARY' => array('MHS av', 'Found Blocks', 'Accepted',
-			'Rejected', 'Utility', 'Hardware Errors',
-			'Work Utility'),
+ 'SUMMARY' => array('MHS av', 'MHS 5m', 'Found Blocks',
+			'Difficulty Accepted', 'Difficulty Rejected',
+			'Work Utility', 'Hardware Errors'),
  'POOL+STATS' => array('POOL.Difficulty Accepted', 'POOL.Difficulty Rejected',
-			'STATS.Times Sent', 'STATS.Bytes Sent', 'STATS.Net Bytes Sent',
-			'STATS.Times Recv', 'STATS.Bytes Recv', 'STATS.Net Bytes Recv'));
+			'STATS.Times Sent', 'STATS.Bytes Sent',
+			'STATS.Net Bytes Sent', 'STATS.Times Recv',
+			'STATS.Bytes Recv', 'STATS.Net Bytes Recv'));
 #
 $poolsext = array(
  'POOL+STATS' => array(
 	'where' => null,
-	'group' => array('POOL.URL', 'POOL.Has Stratum', 'POOL.Stratum Active', 'POOL.Has GBT'),
-	'calc' => array('POOL.Difficulty Accepted' => 'sum', 'POOL.Difficulty Rejected' => 'sum',
-			'STATS.Times Sent' => 'sum', 'STATS.Bytes Sent' => 'sum',
-			'STATS.Net Bytes Sent' => 'sum', 'STATS.Times Recv' => 'sum',
-			'STATS.Bytes Recv' => 'sum', 'STATS.Net Bytes Recv' => 'sum',
+	'group' => array('POOL.URL', 'POOL.Has Stratum',
+				'POOL.Stratum Active', 'POOL.Has GBT'),
+	'calc' => array('POOL.Difficulty Accepted' => 'sum',
+			'POOL.Difficulty Rejected' => 'sum',
+			'STATS.Times Sent' => 'sum',
+			'STATS.Bytes Sent' => 'sum',
+			'STATS.Net Bytes Sent' => 'sum',
+			'STATS.Times Recv' => 'sum',
+			'STATS.Bytes Recv' => 'sum',
+			'STATS.Net Bytes Recv' => 'sum',
 			'POOL.Accepted' => 'sum'),
-	'gen' => array('AvShr' => 'round(POOL.Difficulty Accepted/max(POOL.Accepted,1)*100)/100'),
+	'gen' => array('AvShr' =>
+				'round(POOL.Difficulty Accepted/'.
+					'max(POOL.Accepted,1)*100)/100'),
 	'having' => array(array('STATS.Bytes Recv', '>', 0)))
 );
-
 #
-# customsummarypages is an array of these Custom Summary Pages
-$customsummarypages = array('Mobile' => array($mobilepage, $mobilesum),
- 'Stats' => array($statspage, $statssum),
- 'Pools' => array($poolspage, $poolssum, $poolsext));
+$devnotpage = array(
+ 'DATE' => null,
+ 'RIGS' => null,
+ 'DEVS+NOTIFY' => array('DEVS.Name=Name', 'DEVS.ID=ID',
+			'DEVS.Temperature=Temp', 'DEVS.MHS av=MHS av',
+			'DEVS.Difficulty Accepted=DiffA',
+			'DEVS.Difficulty Rejected=DiffR',
+			'NOTIFY.Last Not Well=Last Not Well'));
+$devnotsum = array(
+ 'DEVS+NOTIFY' => array('DEVS.MHS av', 'DEVS.Difficulty Accepted',
+			'DEVS.Difficulty Rejected'));
+#
+$devdetpage = array(
+ 'DATE' => null,
+ 'RIGS' => null,
+ 'DEVS+DEVDETAILS' => array('DEVS.Name=Name', 'DEVS.ID=ID',
+				'DEVS.Temperature=Temp',
+				'DEVS.MHS av=MHS av',
+				'DEVS.Difficulty Accepted=DiffA',
+				'DEVS.Difficulty Rejected=DiffR',
+				'DEVDETAILS.Device Path=Device'));
+$devdetsum = array(
+ 'DEVS+DEVDETAILS' => array('DEVS.MHS av', 'DEVS.Difficulty Accepted',
+				'DEVS.Difficulty Rejected'));
+#
+$protopage = array(
+ 'DATE' => null,
+ 'RIGS' => null,
+ 'CONFIG' => array('ASC Count=ASCs', 'PGA Count=PGAs', 'Pool Count=Pools',
+			'Strategy', 'Device Code', 'OS', 'Failover-Only'),
+ 'SUMMARY' => array('Elapsed', 'MHS av', 'Found Blocks=Blks',
+			'Difficulty Accepted=Diff Acc',
+			'Difficulty Rejected=Diff Rej',
+			'Hardware Errors=HW Errs',
+			'Network Blocks=Net Blks', 'Utility', 'Work Utility'),
+ 'POOL+STATS' => array('STATS.ID=ID', 'POOL.URL=URL', 'POOL.Accepted=Acc',
+			'POOL.Difficulty Accepted=DiffA',
+			'POOL.Difficulty Rejected=DiffR', 'POOL.Has GBT=GBT',
+			'STATS.Max Diff=Max Work Diff',
+			'STATS.Times Sent=#Sent', 'STATS.Bytes Sent=Byte Sent',
+			'STATS.Net Bytes Sent=Net Sent',
+			'STATS.Times Recv=#Recv',
+			'STATS.Bytes Recv=Byte Recv',
+			'STATS.Net Bytes Recv=Net Recv'));
+$protosum = array(
+ 'SUMMARY' => array('MHS av', 'Found Blocks', 'Difficulty Accepted',
+			'Difficulty Rejected', 'Hardware Errors',
+			'Utility', 'Work Utility'),
+ 'POOL+STATS' => array('POOL.Accepted', 'POOL.Difficulty Accepted',
+			'POOL.Difficulty Rejected',
+			'STATS.Times Sent', 'STATS.Bytes Sent',
+			'STATS.Net Bytes Sent', 'STATS.Times Recv',
+			'STATS.Bytes Recv', 'STATS.Net Bytes Recv'));
+$protoext = array(
+ 'POOL+STATS' => array(
+	'where' => null,
+	'group' => array('POOL.URL', 'POOL.Has GBT'),
+	'calc' => array('POOL.Accepted' => 'sum',
+			'POOL.Difficulty Accepted' => 'sum',
+			'POOL.Difficulty Rejected' => 'sum',
+			'STATS.Max Diff' => 'max',
+			'STATS.Times Sent' => 'sum',
+			'STATS.Bytes Sent' => 'sum',
+			'STATS.Net Bytes Sent' => 'sum',
+			'STATS.Times Recv' => 'sum',
+			'STATS.Bytes Recv' => 'sum',
+			'STATS.Net Bytes Recv' => 'sum'),
+	'having' => array(array('STATS.Bytes Recv', '>', 0)))
+);
+#
+# If 'gen' isn't enabled, the 'GEN' fields won't show but
+# where present, will be replaced with the ||SUMMARY fields
+$kanogenpage = array(
+ 'DATE' => null,
+ 'RIGS' => null,
+ 'SUMMARY+COIN' => array('SUMMARY.Elapsed=Elapsed',
+			'GEN.Mined=Block%', 'GEN.THS Acc=TH/s Acc',
+			'GEN.THS av=TH/s av||SUMMARY.MHS av=MHS av',
+			'GEN.THS 5m=TH/s 5m||SUMMARY.MHS 5m=MHS 5m',
+			'GEN.THS WU=TH/s WU||SUMMARY.Work Utility=WU',
+			'SUMMARY.Found Blocks=Blks',
+			'SUMMARY.Difficulty Accepted=DiffA',
+			'SUMMARY.Difficulty Rejected=DiffR',
+			'SUMMARY.Hardware Errors=HW',
+			'SUMMARY.Difficulty Stale=DiffS',
+			'SUMMARY.Best Share=Best Share',
+			'SUMMARY.Device Hardware%=Dev HW%',
+			'SUMMARY.Device Rejected%=Dev Rej%',
+			'SUMMARY.Pool Rejected%=Pool Rej%',
+			'SUMMARY.Pool Stale%=Pool Stale%'),
+ 'POOL' => array('URL', 'Diff1 Shares=Diff Work',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Difficulty Stale=DiffS',
+			'Best Share', 'GEN.Acc=Pool Acc%', 'GEN.Rej=Pool Rej%'),
+ 'COIN' => array('Current Block Time','Current Block Hash','Network Difficulty')
+);
+# sum should list all fields seperately including GEN/BGEN || replacements
+$kanogensum = array(
+ 'SUMMARY+COIN' => array('GEN.Mined', 'GEN.THS Acc', 'GEN.THS av',
+			'GEN.THS 5m', 'GEN.THS WU',
+			'SUMMARY.MHS av', 'SUMMARY.MHS 5m',
+			'SUMMARY.Work Utility',
+			'SUMMARY.Found Blocks',
+			'SUMMARY.Difficulty Accepted',
+			'SUMMARY.Difficulty Rejected',
+			'SUMMARY.Hardware Errors',
+			'SUMMARY.Difficulty Stale'),
+ 'POOL' => array('Diff1 Shares', 'Difficulty Accepted',
+			'Difficulty Rejected', 'Difficulty Stale')
+);
+# 'where', 'calc' and 'having' should list GEN/BGEN || replacements seperately
+# 'group' must use the 'name1||name2' format for GEN/BGEN fields
+$kanogenext = array(
+ 'SUMMARY+COIN' => array(
+  'gen' => array('THS Acc' =>
+			'round(pow(2,32) * SUMMARY.Difficulty Accepted / '.
+				'SUMMARY.Elapsed / 10000000) / 100000',
+		'Mined' =>
+			'SUMMARY.Elapsed * SUMMARY.Work Utility / 60 / '.
+				'COIN.Network Difficulty',
+		'THS av' =>
+			'SUMMARY.MHS av / 1000000.0',
+		'THS 5m' =>
+			'SUMMARY.MHS 5m / 1000000.0',
+		'THS WU' =>
+			'round(pow(2,32) * SUMMARY.Work Utility / 60 / '.
+				'10000000 ) / 100000')),
+ 'POOL' => array(
+  'group' => array('URL'),
+  'calc' => array('Diff1 Shares' => 'sum', 'Difficulty Accepted' => 'sum',
+			'Difficulty Rejected' => 'sum',
+			'Difficulty Stale' => 'sum', 'Best Share' => 'max'),
+  'gen' => array('Rej' => 'Difficulty Rejected / '.
+				'max(1,Difficulty Accepted+Difficulty Rejected)',
+		'Acc' => 'Difficulty Accepted / '.
+				'max(1,Difficulty Accepted+Difficulty Rejected)'))
+);
+#
+$syspage = array(
+ 'DATE' => null,
+ 'RIGS' => null,
+ 'SUMMARY' => array('#', 'Elapsed', 'MHS av', 'MHS 5m', 'Found Blocks=Blks',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Difficulty Stale=DiffS', 'Hardware Errors=HW',
+			'Work Utility', 'Network Blocks=Net Blks', 'Total MH',
+			'Best Share', 'Device Hardware%=Dev HW%',
+			'Device Rejected%=Dev Rej%',
+			'Pool Rejected%=Pool Rej%', 'Pool Stale%',
+			'Last getwork'),
+ 'DEVS' => array('#', 'ID', 'Name', 'ASC', 'Device Elapsed', 'Enabled',
+			'Status', 'No Device', 'Temperature=Temp',
+			'MHS av', 'MHS 5s', 'MHS 5m', 'Diff1 Work',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Hardware Errors=HW', 'Work Utility',
+			'Last Valid Work', 'Last Share Pool',
+			'Last Share Time', 'Total MH',
+			'Device Hardware%=Dev HW%',
+			'Device Rejected%=Dev Rej%'),
+ 'POOL' => array('POOL', 'URL', 'Status', 'Priority', 'Quota',
+			'Getworks', 'Diff1 Shares',
+			'Difficulty Accepted=DiffA',
+			'Difficulty Rejected=DiffR',
+			'Difficulty Stale=DiffS',
+			'Last Share Difficulty',
+			'Last Share Time',
+			'Best Share', 'Pool Rejected%=Pool Rej%',
+			'Pool Stale%')
+);
+$syssum = array(
+ 'SUMMARY' => array('MHS av', 'MHS 5m', 'Found Blocks',
+			'Difficulty Accepted', 'Difficulty Rejected',
+			'Difficulty Stale', 'Hardware Errors',
+			'Work Utility', 'Total MH'),
+ 'DEVS' => array('MHS av', 'MHS 5s', 'MHS 5m', 'Diff1 Work',
+			'Difficulty Accepted', 'Difficulty Rejected',
+			'Hardware Errors', 'Total MH'),
+ 'POOL' => array('Getworks', 'Diff1 Shares', 'Difficulty Accepted',
+			'Difficulty Rejected', 'Difficulty Stale')
+);
+#
+# $customsummarypages is an array of these Custom Summary Pages
+# that you can override in myminer.php
+# It can be 'Name' => 1 with 'Name' in any of $user_pages or $sys_pages
+# and it can be a fully defined 'Name' => array(...) like in $sys_pages below
+$customsummarypages = array(
+ 'Kano' => 1,
+ 'Mobile' => 1,
+ 'Stats' => 1,
+ 'Avalon' => 1,
+ 'S9' => 1,
+ 'Avalons' => 1,
+ 'Pools' => 1
+);
+#
+# $user_pages are the myminer.php definable version of $sys_pages
+# It should contain a set of 'Name' => array(...) like in $sys_pages
+# that $customsummarypages can refer to by 'Name'
+# If a 'Name' is in both $user_pages and $sys_pages, then the one
+# in $user_pages will override the one in $sys_pages
+$user_pages = array();
 #
 $here = $_SERVER['PHP_SELF'];
 #
@@ -197,6 +652,12 @@ $miner_font_size = '13pt';
 $bad_font_family = '"Times New Roman", Times, serif';
 $bad_font_size = '18pt';
 #
+# List of css names to add to the css style object
+#	e.g. array('td.cool' => false);
+# true/false to not include the default $miner_font
+# The css name/value pairs must be defined in $colouroverride below
+$add_css_names = array();
+#
 # Edit this or redefine it in myminer.php to change the colour scheme
 # See $colourtable below for the list of names
 $colouroverride = array();
@@ -205,6 +666,9 @@ $colouroverride = array();
 #  anything else means don't show them - case sensitive
 $placebuttons = 'top';
 #
+# If 'estats' doesn't work or isn't enabled, replace this with 'stats'
+$mmcmd = 'estats';
+#
 # This below allows you to put your own settings into a seperate file
 # so you don't need to update miner.php with your preferred settings
 # every time a new version is released
@@ -212,6 +676,30 @@ $placebuttons = 'top';
 # 'miner.php' - and put your own settings in there
 if (file_exists('myminer.php'))
  include_once('myminer.php');
+#
+# define $avalonsext after myminer.php to allow override of $ava... limits
+$avalonsmmggen = array('AVATHS' => 'GHSmm / 1000.0');
+$avalonsext = array(
+ 'COIN' => array(
+  'group' => array('Current Block Hash', 'Network Difficulty'),
+  'calc' => array('Current Block Time' => 'min')),
+ 'MM0' => array(
+  'where' => array(array('TMax', '>=', $avatmaxmed),
+		array('GHSmm', '<', $avaghsmmmin)),
+  'gen' => $avalonsmmggen),
+ 'MM1' => array(
+  'where' => array(array('TMax', '>=', $avatmaxmed),
+		array('GHSmm', '>=', $avaghsmmmin)),
+  'gen' => $avalonsmmggen),
+ 'MM3' => array(
+  'where' => array(array('TMax', '<', $avatmaxmed),
+		array('GHSmm', '<', $avaghsmmmin)),
+  'gen' => $avalonsmmggen),
+ 'MM2' => array(
+  'where' => array(array('TMax', '<', $avatmaxmed),
+		array('GHSmm', '>=', $avaghsmmmin)),
+  'gen' => $avalonsmmggen)
+);
 #
 # This is the system default that must always contain all necessary
 # colours so it must be a constant
@@ -243,17 +731,33 @@ $colourtable = array(
 	'td.lo background'	=> '#deffff'
 );
 #
-# Don't touch these 2
+# A list of system default summary pages (defined further above)
+# that you can use by 'Name' in $customsummarypages
+global $sys_pages;
+$sys_pages = array(
+ 'Mobile' => array($mobilepage, $mobilesum),
+ 'Stats' => array($statspage, $statssum),
+ 'Avalon' => array($avalonpage, $avalonsum, $avalonext),
+ 'Avalons' => array($avalonspage, $avalonssum, $avalonsext),
+ 'S9' => array($s9page, $s9sum, $s9ext),
+ 'Pools' => array($poolspage, $poolssum, $poolsext),
+ 'DevNot' => array($devnotpage, $devnotsum),
+ 'DevDet' => array($devdetpage, $devdetsum),
+ 'Proto' => array($protopage, $protosum, $protoext),
+ 'Kano' => array($kanogenpage, $kanogensum, $kanogenext),
+ 'Summary' => array($syspage, $syssum)
+);
+#
+# Don't touch these
 $miner = null;
 $port = null;
+#
+global $rigips;
+$rigips = array();
 #
 # Ensure it is only ever shown once
 global $showndate;
 $showndate = false;
-#
-# For summary page to stop retrying failed rigs
-global $rigerror;
-$rigerror = array();
 #
 global $rownum;
 $rownum = 0;
@@ -261,6 +765,91 @@ $rownum = 0;
 // Login
 global $ses;
 $ses = 'rutroh';
+#
+function getcsp($name, $systempage = false)
+{
+ global $customsummarypages, $user_pages, $sys_pages;
+
+ if ($systempage === false)
+ {
+	if (!isset($customsummarypages[$name]))
+		return false;
+
+	$csp = $customsummarypages[$name];
+	if (is_array($csp))
+	{
+		if (count($csp) < 2 || count($csp) > 3)
+			return false;
+		else
+			return $csp;
+	}
+ }
+
+ if (isset($user_pages[$name]))
+ {
+	$csp = $user_pages[$name];
+	if (!is_array($csp) || count($csp) < 2 || count($csp) > 3)
+		return false;
+	else
+		return $csp;
+ }
+
+ if (isset($sys_pages[$name]))
+ {
+	$csp = $sys_pages[$name];
+	if (!is_array($csp) || count($csp) < 2 || count($csp) > 3)
+		return false;
+	else
+		return $csp;
+ }
+
+ return false;
+}
+#
+function degenfields(&$sec, $name, $fields)
+{
+ global $allowgen;
+
+ if (!is_array($fields))
+	return;
+
+ foreach ($fields as $num => $fld)
+	if (substr($fld, 0, 5) == 'BGEN.' || substr($fld, 0, 4) == 'GEN.')
+	{
+		$opts = explode('||', $fld, 2);
+		if ($allowgen)
+		{
+			if (count($opts) > 1)
+				$sec[$name][$num] = $opts[0];
+		}
+		else
+		{
+			if (count($opts) > 1)
+				$sec[$name][$num] = $opts[1];
+			else
+				unset($sec[$name][$num]);
+		}
+	}
+}
+#
+# Allow BGEN/GEN fields to have a '||' replacement when gen is disabled
+# N.B. if gen is disabled and all page fields are GBEN/GEN without '||' then
+# the table will disappear
+# Replacements can be in the page fields and then also the ext group fields
+# All other $csp sections should list both separately
+function degen(&$csp)
+{
+ $page = 0;
+ if (isset($csp[$page]) && is_array($csp[$page]))
+	foreach ($csp[$page] as $sec => $fields)
+		degenfields($csp[$page], $sec, $fields);
+
+ $ext = 2;
+ if (isset($csp[$ext]) && is_array($csp[$ext]))
+	foreach ($csp[$ext] as $sec => $types)
+		if (is_array($types) && isset($types['group']))
+			degenfields($types, 'group', $types['group']);
+}
 #
 function getcss($cssname, $dom = false)
 {
@@ -289,10 +878,18 @@ function getdom($domname)
  return getcss($domname, true);
 }
 #
+# N.B. don't call this before calling htmlhead()
+function php_pr($cmd)
+{
+ global $here, $autorefresh;
+
+ return "$here?ref=$autorefresh$cmd";
+}
+#
 function htmlhead($mcerr, $checkapi, $rig, $pg = null, $noscript = false)
 {
  global $doctype, $title, $miner_font_family, $miner_font_size;
- global $bad_font_family, $bad_font_size;
+ global $bad_font_family, $bad_font_size, $add_css_names;
  global $error, $readonly, $poolinputs, $here;
  global $ignorerefresh, $autorefresh;
 
@@ -336,8 +933,16 @@ td.sta { $miner_font ".getcss('td.sta')."}
 td.tot { $miner_font ".getcss('td.tot')."}
 td.lst { $miner_font ".getcss('td.lst')."}
 td.hi { $miner_font ".getcss('td.hi')."}
-td.lo { $miner_font ".getcss('td.lo')."}
-</style>
+td.lo { $miner_font ".getcss('td.lo')."}\n";
+ if (isset($add_css_names))
+	foreach ($add_css_names as $css_name => $no_miner_font)
+	{
+		echo "$css_name { ";
+		if ($no_miner_font !== true)
+			echo "$miner_font ";
+		echo getcss("$css_name")."}\n";
+	}
+ echo "</style>
 </head><body".getdom('body').">\n";
 if ($noscript === false)
 {
@@ -491,9 +1096,12 @@ function getrigs()
 #
 function getsock($rig, $addr, $port)
 {
- global $rigipsecurity;
+ global $rigport, $rigips, $rignames, $rigipsecurity;
  global $haderror, $error, $socksndtimeoutsec, $sockrcvtimeoutsec;
 
+ $port = trim($port);
+ if (strlen($port) == 0)
+	$port = $rigport;
  $error = null;
  $socket = null;
  $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
@@ -534,6 +1142,9 @@ function getsock($rig, $addr, $port)
 	socket_close($socket);
 	return null;
  }
+ if ($rignames !== false && !isset($rigips[$addr]))
+	if (socket_getpeername($socket, $ip) == true)
+		$rigips[$addr] = $ip;
  return $socket;
 }
 #
@@ -595,12 +1206,15 @@ function revert($str)
 function api($rig, $cmd)
 {
  global $haderror, $error;
- global $miner, $port, $hidefields;
+ global $miner, $port, $hidefields, $mmcmd;
 
  $socket = getsock($rig, $miner, $port);
  if ($socket != null)
  {
-	socket_write($socket, $cmd, strlen($cmd));
+	if ($cmd == 'mm')
+		socket_write($socket, $mmcmd, strlen($mmcmd));
+	else
+		socket_write($socket, $cmd, strlen($cmd));
 	$line = readsockline($socket);
 	socket_close($socket);
 
@@ -659,6 +1273,62 @@ function api($rig, $cmd)
 				$counter++;
 			}
 		}
+	}
+	if ($cmd == 'mm')
+	{
+		$data2 = array();
+		$num = 0;
+		foreach ($data as $name => $values)
+		{
+			if (substr($name, 0, 5) !== 'STATS')
+				$data2[$name] = $values;
+			else
+			{
+				if (substr($values['ID'], 0, 4) == 'POOL')
+					continue;
+				$snum = substr($name, 5);
+				#
+				if (isset($values['Connector']))
+					$auc = $values['Connector'];
+				else
+					$auc = 'AUC';
+				$auc .= $snum;
+				#
+				foreach ($values as $nam => $val)
+				{
+					if (substr($nam, 0, 5) !== 'MM ID')
+						continue;
+					$mm = 'MM'.$num;
+					#
+					$data2[$mm] = array('MM' => $num,
+							'ID' => $values['ID'],
+							'MMID' => substr($nam,5),
+							'Connecter' => $auc);
+					#
+					$len = strlen($val);
+					$pos = 0;
+					while ($pos < $len)
+					{
+						while ($val[$pos] == ' ')
+							$pos++;
+						$brl = strpos($val, '[', $pos+1);
+						if ($brl === false)
+							break;
+						$brr = strpos($val, ']', $brl+1);
+						if ($brr === false)
+							break;
+						#
+						$subn = substr($val, $pos, $brl - $pos);
+						$data2[$mm][$subn] = substr($val, $brl+1, $brr-$brl-1);
+						#
+						$pos = $brr+1;
+					}
+					#
+					$num++;
+				}
+			}
+		}
+		return $data2;
 	}
 	return $data;
  }
@@ -768,77 +1438,109 @@ function endzero($num)
  return $rep;
 }
 #
-function fmt($section, $name, $value, $when, $alldata)
+function fmt($section, $name, $value, $when, $alldata, $cf = NULL)
 {
  global $dfmt, $rownum;
+ global $avatmaxmed, $avatmaxhi, $avatempmed, $avatemphi, $avaghsmmmin;
+ global $s9tempmed, $s9temphi, $s9chainmin, $s9acn;
 
  if ($alldata == null)
 	$alldata = array();
 
- $errorclass = ' class=err';
- $warnclass = ' class=warn';
- $lstclass = ' class=lst';
- $hiclass = ' class=hi';
- $loclass = ' class=lo';
- $c2class = ' class=two';
- $totclass = ' class=tot';
+ $errorclass = 'err';
+ $warnclass = 'warn';
+ $lstclass = 'lst';
+ $hiclass = 'hi';
+ $loclass = 'lo';
+ $c2class = 'two';
+ $totclass = 'tot';
  $b = '&nbsp;';
 
- $ret = $value;
  $class = '';
 
  $nams = explode('.', $name);
  if (count($nams) > 1)
 	$name = $nams[count($nams)-1];
 
+ $done = false;
  if ($value === null)
+ {
 	$ret = $b;
+	$done = true;
+ }
  else
-	switch ($section.'.'.$name)
+	if ($cf != NULL and function_exists($cf))
 	{
-	case 'GPU.Last Share Time':
-	case 'PGA.Last Share Time':
-	case 'ASC.Last Share Time':
-	case 'DEVS.Last Share Time':
-		if ($value == 0
-		||  (isset($alldata['Last Share Pool']) && $alldata['Last Share Pool'] == -1))
+		list($ret, $class) = $cf($section, $name, $value, $when, $alldata,
+					   $warnclass, $errorclass, $hiclass, $loclass, $totclass);
+		if ($ret !== '')
+			$done = true;
+	}
+
+ if ($done === false)
+ {
+	$ret = $value;
+	/*
+	 * To speed up the PHP, the case statement is just $name
+	 * It used to be $section.'.'.$name
+	 * If any names clash, the case code will need to check the value of
+	 *  $section to resolve the clash - as with 'Last Share Time' below
+	 * If the code picks up a field that you wish to format differently,
+	 *  then you'll need a customsummarypage 'fmt' extension
+	 * This also removes trailing numbers so multiple fields like in the
+	 *  S9 don't require many case lines
+	 */
+	switch (preg_replace('/\d*$/', '', $name))
+	{
+	case '0':
+		break;
+	case 'Last Share Time':
+		if ($section == 'total')
+			break;
+		if ($section == 'POOL')
 		{
-			$ret = 'Never';
-			$class = $warnclass;
+			if ($value == 0)
+				$ret = 'Never';
+			else
+				$ret = date('H:i:s d-M', $value);
 		}
 		else
 		{
-			$ret = date('H:i:s', $value);
-			$class = classlastshare($when, $alldata, $warnclass, $errorclass);
+			if ($value == 0
+			||  (isset($alldata['Last Share Pool']) && $alldata['Last Share Pool'] == -1))
+			{
+				$ret = 'Never';
+				$class = $warnclass;
+			}
+			else
+			{
+				$ret = date('H:i:s', $value);
+				$class = classlastshare($when, $alldata, $warnclass, $errorclass);
+			}
 		}
 		break;
-	case 'GPU.Last Valid Work':
-	case 'PGA.Last Valid Work':
-	case 'ASC.Last Valid Work':
-	case 'DEVS.Last Valid Work':
+	case 'Last getwork':
+	case 'Last Valid Work':
+		if ($section == 'total')
+			break;
 		if ($value == 0)
 			$ret = 'Never';
 		else
 			$ret = ($value - $when) . 's';
 		break;
-	case 'POOL.Last Share Time':
-		if ($value == 0)
-			$ret = 'Never';
-		else
-			$ret = date('H:i:s d-M', $value);
-		break;
-	case 'GPU.Last Share Pool':
-	case 'PGA.Last Share Pool':
-	case 'ASC.Last Share Pool':
-	case 'DEVS.Last Share Pool':
+	case 'Last Share Pool':
+		if ($section == 'total')
+			break;
 		if ($value == -1)
 		{
 			$ret = 'None';
 			$class = $warnclass;
 		}
 		break;
-	case 'SUMMARY.Elapsed':
-	case 'STATS.Elapsed':
+	case 'Elapsed':
+	case 'Device Elapsed':
+		if ($section == 'total')
+			break;
 		$s = $value % 60;
 		$value -= $s;
 		$value /= 60;
@@ -870,7 +1572,9 @@ function fmt($section, $name, $value, $when, $alldata)
 			}
 		}
 		break;
-	case 'NOTIFY.Last Well':
+	case 'Last Well':
+		if ($section == 'total')
+			break;
 		if ($value == '0')
 		{
 			$ret = 'Never';
@@ -879,7 +1583,9 @@ function fmt($section, $name, $value, $when, $alldata)
 		else
 			$ret = date('H:i:s', $value);
 		break;
-	case 'NOTIFY.Last Not Well':
+	case 'Last Not Well':
+		if ($section == 'total')
+			break;
 		if ($value == '0')
 			$ret = 'Never';
 		else
@@ -888,17 +1594,14 @@ function fmt($section, $name, $value, $when, $alldata)
 			$class = $errorclass;
 		}
 		break;
-	case 'NOTIFY.Reason Not Well':
+	case 'Reason Not Well':
+		if ($section == 'total')
+			break;
 		if ($value != 'None')
 			$class = $errorclass;
 		break;
-	case 'GPU.Utility':
-	case 'PGA.Utility':
-	case 'ASC.Utility':
-	case 'DEVS.Utility':
-	case 'SUMMARY.Utility':
-	case 'total.Utility':
-		$ret = $value.'/m';
+	case 'Utility':
+		$ret = number_format($value, 2).'/m';
 		if ($value == 0)
 			$class = $errorclass;
 		else
@@ -924,14 +1627,12 @@ function fmt($section, $name, $value, $when, $alldata)
 						$class = $hiclass;
 			}
 		break;
-	case 'SUMMARY.Work Utility':
-	case 'total.Work Utility':
-		$ret = $value.'/m';
+	case 'Work Utility':
+		$ret = number_format($value, 2).'/m';
 		break;
-	case 'GPU.Temperature':
-	case 'PGA.Temperature':
-	case 'ASC.Temperature':
-	case 'DEVS.Temperature':
+	case 'Temperature':
+		if ($section == 'total')
+			break;
 		$ret = $value.'&deg;C';
 		if (!isset($alldata['GPU']))
 		{
@@ -939,19 +1640,18 @@ function fmt($section, $name, $value, $when, $alldata)
 				$ret = '&nbsp;';
 			break;
 		}
-	case 'GPU.GPU Clock':
-	case 'DEVS.GPU Clock':
-	case 'GPU.Memory Clock':
-	case 'DEVS.Memory Clock':
-	case 'GPU.GPU Voltage':
-	case 'DEVS.GPU Voltage':
-	case 'GPU.GPU Activity':
-	case 'DEVS.GPU Activity':
+	case 'GPU Clock':
+	case 'Memory Clock':
+	case 'GPU Voltage':
+	case 'GPU Activity':
+		if ($section == 'total')
+			break;
 		if ($value == 0)
 			$class = $warnclass;
 		break;
-	case 'GPU.Fan Percent':
-	case 'DEVS.Fan Percent':
+	case 'Fan Percent':
+		if ($section == 'total')
+			break;
 		if ($value == 0)
 			$class = $warnclass;
 		else
@@ -963,8 +1663,9 @@ function fmt($section, $name, $value, $when, $alldata)
 					$class = $warnclass;
 		}
 		break;
-	case 'GPU.Fan Speed':
-	case 'DEVS.Fan Speed':
+	case 'Fan Speed':
+		if ($section == 'total')
+			break;
 		if ($value == 0)
 			$class = $warnclass;
 		else
@@ -978,12 +1679,11 @@ function fmt($section, $name, $value, $when, $alldata)
 						$class = $warnclass;
 			}
 		break;
-	case 'GPU.MHS av':
-	case 'PGA.MHS av':
-	case 'ASC.MHS av':
-	case 'DEVS.MHS av':
-	case 'SUMMARY.MHS av':
-	case 'total.MHS av':
+	case 'MHS av':
+	case 'MHS 5s':
+	case 'MHS 1m':
+	case 'MHS 5m':
+	case 'MHS 15m':
 		$parts = explode('.', $value, 2);
 		if (count($parts) == 1)
 			$dec = '';
@@ -1016,52 +1716,21 @@ function fmt($section, $name, $value, $when, $alldata)
 						$class = $loclass;
 			}
 		break;
-	case 'GPU.Total MH':
-	case 'PGA.Total MH':
-	case 'ASC.Total MH':
-	case 'DEVS.Total MH':
-	case 'SUMMARY.Total MH':
-	case 'total.Total MH':
-	case 'SUMMARY.Getworks':
-	case 'POOL.Getworks':
-	case 'total.Getworks':
-	case 'GPU.Accepted':
-	case 'PGA.Accepted':
-	case 'ASC.Accepted':
-	case 'DEVS.Accepted':
-	case 'SUMMARY.Accepted':
-	case 'POOL.Accepted':
-	case 'total.Accepted':
-	case 'GPU.Rejected':
-	case 'PGA.Rejected':
-	case 'ASC.Rejected':
-	case 'DEVS.Rejected':
-	case 'SUMMARY.Rejected':
-	case 'POOL.Rejected':
-	case 'total.Rejected':
-	case 'SUMMARY.Local Work':
-	case 'total.Local Work':
-	case 'SUMMARY.Discarded':
-	case 'POOL.Discarded':
-	case 'total.Discarded':
-	case 'POOL.Diff1 Shares':
-	case 'total.Diff1 Shares':
-	case 'GPU.Diff1 Work':
-	case 'PGA.Diff1 Work':
-	case 'ASC.Diff1 Work':
-	case 'total.Diff1 Work':
-	case 'STATS.Times Sent':
-	case 'STATS.Bytes Sent':
-	case 'STATS.Net Bytes Sent':
-	case 'STATS.Times Recv':
-	case 'STATS.Bytes Recv':
-	case 'STATS.Net Bytes Recv':
-	case 'total.Times Sent':
-	case 'total.Bytes Sent':
-	case 'total.Net Bytes Sent':
-	case 'total.Times Recv':
-	case 'total.Bytes Recv':
-	case 'total.Net Bytes Recv':
+	case 'Total MH':
+	case 'Getworks':
+	case 'Works':
+	case 'Accepted':
+	case 'Rejected':
+	case 'Local Work':
+	case 'Discarded':
+	case 'Diff1 Shares':
+	case 'Diff1 Work':
+	case 'Times Sent':
+	case 'Bytes Sent':
+	case 'Net Bytes Sent':
+	case 'Times Recv':
+	case 'Bytes Recv':
+	case 'Net Bytes Recv':
 		$parts = explode('.', $value, 2);
 		if (count($parts) == 1)
 			$dec = '';
@@ -1069,16 +1738,16 @@ function fmt($section, $name, $value, $when, $alldata)
 			$dec = '.'.$parts[1];
 		$ret = number_format((float)$parts[0]).$dec;
 		break;
-	case 'STATS.Hs':
-	case 'STATS.W':
-	case 'STATS.history_time':
-	case 'STATS.Pool Wait':
-	case 'STATS.Pool Max':
-	case 'STATS.Pool Min':
-	case 'STATS.Pool Av':
-	case 'STATS.Min Diff':
-	case 'STATS.Max Diff':
-	case 'STATS.Work Diff':
+	case 'Hs':
+	case 'W':
+	case 'history_time':
+	case 'Pool Wait':
+	case 'Pool Max':
+	case 'Pool Min':
+	case 'Pool Av':
+	case 'Min Diff':
+	case 'Max Diff':
+	case 'Work Diff':
 		$parts = explode('.', $value, 2);
 		if (count($parts) == 1)
 			$dec = '';
@@ -1086,78 +1755,249 @@ function fmt($section, $name, $value, $when, $alldata)
 			$dec = '.'.endzero($parts[1]);
 		$ret = number_format((float)$parts[0]).$dec;
 		break;
-	case 'GPU.Status':
-	case 'PGA.Status':
-	case 'ASC.Status':
-	case 'DEVS.Status':
-	case 'POOL.Status':
+	case 'Status':
+		if ($section == 'total')
+			break;
 		if ($value != 'Alive')
 			$class = $errorclass;
 		break;
-	case 'GPU.Enabled':
-	case 'PGA.Enabled':
-	case 'ASC.Enabled':
-	case 'ASC.Enabled':
-	case 'DEVS.Enabled':
+	case 'Enabled':
+		if ($section == 'total')
+			break;
 		if ($value != 'Y')
 			$class = $warnclass;
 		break;
-	case 'STATUS.When':
-	case 'COIN.Current Block Time':
+	case 'No Device':
+		if ($section == 'total')
+			break;
+		if ($value != 'false')
+			$class = $errorclass;
+		break;
+	case 'When':
+	case 'Current Block Time':
+		if ($section == 'total')
+			break;
 		$ret = date($dfmt, $value);
 		break;
-	case 'BUTTON.Rig':
-	case 'BUTTON.Pool':
-	case 'BUTTON.GPU':
-		$ret = $value;
+	case 'Current Block Version':
+		if ($section == 'total')
+			break;
+		$ret = sprintf("0x%08x", $value);
 		break;
-	case 'SUMMARY.Difficulty Accepted':
-	case 'GPU.Difficulty Accepted':
-	case 'PGA.Difficulty Accepted':
-	case 'ASC.Difficulty Accepted':
-	case 'DEVS.Difficulty Accepted':
-	case 'POOL.Difficulty Accepted':
-	case 'total.Difficulty Accepted':
-	case 'SUMMARY.Difficulty Rejected':
-	case 'GPU.Difficulty Rejected':
-	case 'PGA.Difficulty Rejected':
-	case 'ASC.Difficulty Rejected':
-	case 'DEVS.Difficulty Rejected':
-	case 'POOL.Difficulty Rejected':
-	case 'total.Difficulty Rejected':
-	case 'SUMMARY.Difficulty Stale':
-	case 'POOL.Difficulty Stale':
-	case 'total.Difficulty Stale':
-	case 'GPU.Last Share Difficulty':
-	case 'PGA.Last Share Difficulty':
-	case 'ASC.Last Share Difficulty':
-	case 'DEVS.Last Share Difficulty':
-	case 'POOL.Last Share Difficulty':
+	case 'Last Share Difficulty':
+		if ($section == 'total')
+			break;
+	case 'Difficulty Accepted':
+	case 'Difficulty Rejected':
+	case 'Difficulty Stale':
+	case 'Network Difficulty':
 		if ($value != '')
 			$ret = number_format((float)$value, 2);
 		break;
-	case 'DEVS.Device Hardware%':
-	case 'DEVS.Device Rejected%':
-	case 'ASC.Device Hardware%':
-	case 'ASC.Device Rejected%':
-	case 'PGA.Device Hardware%':
-	case 'PGA.Device Rejected%':
-	case 'GPU.Device Hardware%':
-	case 'GPU.Device Rejected%':
-	case 'POOL.Pool Rejected%':
-	case 'POOL.Pool Stale%':
-	case 'SUMMARY.Device Hardware%':
-	case 'SUMMARY.Device Rejected%':
-	case 'SUMMARY.Pool Rejected%':
-	case 'SUMMARY.Pool Stale%':
+	case 'Device Hardware%':
+	case 'Device Rejected%':
+	case 'Pool Rejected%':
+	case 'Pool Stale%':
+		if ($section == 'total')
+			break;
 		if ($value != '')
 			$ret = number_format((float)$value, 2) . '%';
 		break;
-	case 'SUMMARY.Best Share':
+	case 'Best Share':
+		if ($section == 'total')
+			break;
+	case 'Hardware Errors':
 		if ($value != '')
 			$ret = number_format((float)$value);
 		break;
+	// Ava specific stats fields
+	case 'GHSmm':
+	case 'AVATHS':
+		if ($value != '')
+			$ret = number_format((float)$value, 2);
+
+		if ($section != 'total')
+		{
+			if ($value == 0)
+				$class = $errorclass;
+			else
+			{
+				if ($name == 'GHSmm')
+				{
+					if ($value < $avaghsmmmin)
+						$class = $warnclass;
+				}
+				else
+				{
+					if ($value < ($avaghsmmmin/1000.0))
+						$class = $warnclass;
+				}
+			}
+		}
+		break;
+	case 'Temp':
+		if ($section == 'total')
+			break;
+		$ret = $value.'&deg;C';
+		if ($section == 'MM')
+		{
+			if ($value == 0 || $value >= $avatemphi)
+				$class = $errorclass;
+			else
+				if ($value >= $avatempmed)
+					$class = $warnclass;
+		}
+		break;
+	case 'TMax':
+		if ($section == 'total')
+			break;
+		$ret = $value.'&deg;C';
+		if ($value == 0 || $value >= $avatmaxhi)
+			$class = $errorclass;
+		else
+			if ($value >= $avatmaxmed)
+				$class = $warnclass;
+		break;
+	case 'PG':
+		if ($section == 'total')
+			break;
+		if ($value != '15')
+		{
+			if ($value > 10)
+				$class = $warnclass;
+			else
+				$class = $errorclass;
+
+		}
+		$ret = $value;
+		break;
+	case 'ECHU':
+		if ($section == 'total')
+			break;
+		$ret = $value;
+		$chk = str_replace(array(' ','0'), '', $value);
+		if ($chk != '')
+		{
+			$class = $warnclass;
+			$vals = explode(' ', $value);
+			$ret = '';
+			$sep = '';
+			foreach ($vals as $one)
+			{
+				if ($one == '0' || $one == '1')
+					$ret .= $sep.$one;
+				else
+					$ret .= $sep.'x'.dechex($one);
+				$sep = ' ';
+			}
+		}
+		$ret = str_replace(' ', '&nbsp;', $ret);
+		break;
+	case 'Vi':
+	case 'Vo':
+		if ($section == 'total')
+			break;
+		$ret = str_replace(' ', '&nbsp;', $value);
+		break;
+	case 'ECMM':
+		if ($section == 'total')
+			break;
+		if ($value != '0')
+		{
+			$class = $warnclass;
+			$ret = 'x'.dechex($value);
+		}
+		else
+			$ret = $value;
+		break;
+	case 'Ver':
+		if ($section == 'total')
+			break;
+		$ret = str_replace('-', '&#8209;', $value);
+		break;
+	// S9 specific stats fields
+	case 'fan_num':
+		if ($section == 'total')
+			break;
+		$ret = $value;
+		if ($value < 1)
+			$class = $warnclass;
+		break;
+	case 'temp2_':
+		if ($section == 'total')
+			break;
+		$ret = $value.'&deg;C';
+		if ($value == 0 || $value >= $s9temphi)
+			$class = $errorclass;
+		else
+			if ($value >= $s9tempmed)
+				$class = $warnclass;
+		break;
+	case 'chain_acn':
+		if ($section == 'total')
+			break;
+		$ret = $value;
+		if ($value != $s9acn)
+			$class = $warnclass;
+		break;
+	case 'chain_rate':
+		if ($value != '')
+			$ret = number_format((float)$value, 2);
+
+		if ($section != 'total')
+		{
+			if ($value == 0)
+				$class = $errorclass;
+			else
+			{
+				if ($value < $s9chainmin)
+					$class = $warnclass;
+			}
+		}
+		break;
+	case 'total_rate':
+		if ($value != '')
+			$ret = number_format((float)$value, 2);
+		if ($value == 0)
+			$class = $errorclass;
+		break;
+	// BUTTON.
+	case 'Rig':
+	case 'Pool':
+	case 'GPU':
+		break;
+	// Sample GEN fields
+	case 'Mined':
+		if ($value != '')
+			$ret = number_format((float)$value * 100.0, 3) . '%';
+		break;
+	case 'Acc':
+	case 'Rej':
+		if ($value != '')
+			$ret = number_format((float)$value * 100.0, 2) . '%';
+		break;
+	case 'GHS av':
+	case 'GHS 5m':
+	case 'GHS WU':
+	case 'GHS Acc':
+	case 'THS':
+	case 'THS av':
+	case 'THS 5m':
+	case 'THS WU':
+	case 'THS Acc':
+		if ($value != '')
+			$ret = number_format((float)$value, 2);
+		break;
+	case 'AvShr':
+		if ($section == 'total')
+			break;
+		if ($value != '')
+			$ret = number_format((float)$value, 2);
+		if ($value == 0)
+			$class = $warnclass;
+		break;
 	}
+ }
 
  if ($section == 'NOTIFY' && substr($name, 0, 1) == '*' && $value != '0')
 	$class = $errorclass;
@@ -1173,6 +2013,9 @@ function fmt($section, $name, $value, $when, $alldata)
 
  if ($ret === '')
 	$ret = $b;
+
+ if ($class !== '')
+	$class = " class=$class";
 
  return array($ret, $class);
 }
@@ -1212,14 +2055,16 @@ function showdatetime()
 #
 global $singlerigsum;
 $singlerigsum = array(
- 'devs' => array('MHS av' => 1, 'MHS 5s' => 1, 'Accepted' => 1, 'Rejected' => 1,
+ 'devs' => array('MHS av' => 1, 'MHS 5s' => 1, 'MHS 1m' => 1, 'MHS 5m' => 1,
+			'MHS 15m' => 1, 'Accepted' => 1, 'Rejected' => 1,
 			'Hardware Errors' => 1, 'Utility' => 1, 'Total MH' => 1,
-			'Diff1 Shares' => 1, 'Diff1 Work' => 1, 'Difficulty Accepted' => 1,
-			'Difficulty Rejected' => 1),
+			'Diff1 Shares' => 1, 'Diff1 Work' => 1,
+			'Difficulty Accepted' => 1, 'Difficulty Rejected' => 1),
  'pools' => array('Getworks' => 1, 'Accepted' => 1, 'Rejected' => 1, 'Discarded' => 1,
 			'Stale' => 1, 'Get Failures' => 1, 'Remote Failures' => 1,
-			'Diff1 Shares' => 1, 'Diff1 Work' => 1, 'Difficulty Accepted' => 1,
-			'Difficulty Rejected' => 1, 'Difficulty Stale' => 1),
+			'Diff1 Shares' => 1, 'Diff1 Work' => 1,
+			'Difficulty Accepted' => 1, 'Difficulty Rejected' => 1,
+			'Difficulty Stale' => 1),
  'notify' => array('*' => 1));
 #
 function showtotal($total, $when, $oldvalues)
@@ -1536,39 +2381,67 @@ function process($cmds, $rig)
 #
 function rigname($rig, $rigname)
 {
- global $rigs;
+ global $rigs, $rignames, $rigips;
 
  if (isset($rigs[$rig]))
  {
 	$parts = explode(':', $rigs[$rig], 3);
 	if (count($parts) == 3)
 		$rigname = $parts[2];
+	else
+		if ($rignames !== false)
+		{
+			switch ($rignames)
+			{
+			case 'ip':
+				if (isset($parts[0]) && isset($rigips[$parts[0]]))
+				{
+					$ip = explode('.', $rigips[$parts[0]]);
+					if (count($ip) == 4)
+						$rigname = intval($ip[3]);
+				}
+				break;
+			case 'ipx':
+				if (isset($parts[0]) && isset($rigips[$parts[0]]))
+				{
+					$ip = explode('.', $rigips[$parts[0]]);
+					if (count($ip) == 4)
+						$rigname = intval($ip[3], 16);
+				}
+				break;
+			}
+		}
  }
 
  return $rigname;
 }
 #
-function riginput($rig, $rigname)
+function riginput($rig, $rigname, $usebuttons)
 {
  $rigname = rigname($rig, $rigname);
 
- return "<input type=button value='$rigname' onclick='pr(\"&rig=$rig\",null)'>";
+ if ($usebuttons === true)
+	return "<input type=button value='$rigname' onclick='pr(\"&rig=$rig\",null)'>";
+ else
+	return "<a href='".php_pr("&rig=$rig")."'>$rigname</a>";
 }
 #
-function rigbutton($rig, $rigname, $when, $row)
+function rigbutton($rig, $rigname, $when, $row, $usebuttons)
 {
  list($value, $class) = fmt('BUTTON', 'Rig', '', $when, $row);
 
  if ($rig === '')
 	$ri = '&nbsp;';
  else
-	$ri = riginput($rig, $rigname);
+	$ri = riginput($rig, $rigname, $usebuttons);
 
  return "<td align=middle$class>$ri</td>";
 }
 #
 function showrigs($anss, $headname, $rigname)
 {
+ global $rigbuttons;
+
  $dthead = array($headname => 1, 'STATUS' => 1, 'Description' => 1, 'When' => 1, 'API' => 1, 'CGMiner' => 1);
  showhead('', $dthead);
 
@@ -1591,7 +2464,7 @@ function showrigs($anss, $headname, $rigname)
 		foreach ($dthead as $name => $x)
 		{
 			if ($item == 'STATUS' && $name == $headname)
-				echo rigbutton($rig, $rigname.$rig, $when, null);
+				echo rigbutton($rig, $rigname.$rig, $when, null, $rigbuttons);
 			else
 			{
 				if (isset($row[$name]))
@@ -1603,165 +2476,6 @@ function showrigs($anss, $headname, $rigname)
 		}
 	}
 	endrow();
- }
-}
-#
-# $head is a hack but this is just a demo anyway :)
-function doforeach($cmd, $des, $sum, $head, $datetime)
-{
- global $miner, $port;
- global $error, $readonly, $notify, $rigs;
- global $warnfont, $warnoff, $dfmt;
- global $rigerror;
-
- $when = 0;
-
- $header = $head;
- $anss = array();
-
- $count = 0;
- $preverr = count($rigerror);
- foreach ($rigs as $num => $rig)
- {
-	$anss[$num] = null;
-
-	if (isset($rigerror[$rig]))
-		continue;
-
-	$parts = explode(':', $rig, 3);
-	if (count($parts) >= 2)
-	{
-		$miner = $parts[0];
-		$port = $parts[1];
-
-		if (count($parts) > 2)
-			$name = $parts[2];
-		else
-			$name = $num;
-
-		$ans = api($name, $cmd);
-
-		if ($error != null)
-		{
-			$rw = "<td colspan=100>Error on rig $name getting ";
-			$rw .= "$des: $warnfont$error$warnoff</td>";
-			otherrow($rw);
-			$rigerror[$rig] = $error;
-			$error = null;
-		}
-		else
-		{
-			$anss[$num] = $ans;
-			$count++;
-		}
-	}
- }
-
- if ($count == 0)
- {
-	$rw = '<td>Failed to access any rigs successfully';
-	if ($preverr > 0)
-		$rw .= ' (or rigs had previous errors)';
-	$rw .= '</td>';
-	otherrow($rw);
-	return;
- }
-
- if ($datetime)
- {
-	showdatetime();
-	endtable();
-	newtable();
-	showrigs($anss, '', 'Rig ');
-	endtable();
-	otherrow('<td><br><br></td>');
-	newtable();
-
-	return;
- }
-
- $total = array();
-
- foreach ($anss as $rig => $ans)
- {
-	if ($ans == null)
-		continue;
-
-	foreach ($ans as $item => $row)
-	{
-		if ($item == 'STATUS')
-			continue;
-
-		if (count($row) > count($header))
-		{
-			$header = $head;
-			foreach ($row as $name => $value)
-				if (!isset($header[$name]))
-					$header[$name] = '';
-		}
-
-		if ($sum != null)
-			foreach ($sum as $name)
-			{
-				if (isset($row[$name]))
-				{
-					if (isset($total[$name]))
-						$total[$name] += $row[$name];
-					else
-						$total[$name] = $row[$name];
-				}
-			}
-	}
- }
-
- if ($sum != null)
-	$anss['total']['total'] = $total;
-
- showhead('', $header);
-
- foreach ($anss as $rig => $ans)
- {
-	if ($ans == null)
-		continue;
-
-	$when = 0;
-	if (isset($ans['STATUS']['When']))
-		$when = $ans['STATUS']['When'];
-
-	foreach ($ans as $item => $row)
-	{
-		if ($item == 'STATUS')
-			continue;
-
-		newrow();
-
-		$section = preg_replace('/\d/', '', $item);
-
-		foreach ($header as $name => $x)
-		{
-			if ($name == '')
-			{
-				if ($rig === 'total')
-				{
-					list($ignore, $class) = fmt($rig, '', '', $when, $row);
-					echo "<td align=right$class>Total:</td>";
-				}
-				else
-					echo rigbutton($rig, "Rig $rig", $when, $row);
-			}
-			else
-			{
-				if (isset($row[$name]))
-					$value = $row[$name];
-				else
-					$value = null;
-
-				list($showvalue, $class) = fmt($section, $name, $value, $when, $row);
-				echo "<td$class align=right>$showvalue</td>";
-			}
-		}
-		endrow();
-	}
  }
 }
 #
@@ -1780,7 +2494,7 @@ function refreshbuttons()
 #
 function pagebuttons($rig, $pg)
 {
- global $readonly, $rigs, $userlist, $ses;
+ global $readonly, $rigs, $rigbuttons, $userlist, $ses;
  global $allowcustompages, $customsummarypages;
 
  if ($rig === null)
@@ -1819,12 +2533,14 @@ function pagebuttons($rig, $pg)
  if ($userlist === null || isset($_SESSION[$ses]))
  {
 	if ($prev !== null)
-		echo riginput($prev, 'Prev').'&nbsp;';
+		echo riginput($prev, 'Prev', true).'&nbsp;';
+
 	echo "<input type=button value='Refresh' onclick='pr(\"$refresh\",null)'>&nbsp;";
+
 	if ($next !== null)
-		echo riginput($next, 'Next').'&nbsp;';
+		echo riginput($next, 'Next', true).'&nbsp;';
 	echo '&nbsp;';
-	if (count($rigs) > 1)
+	if (count($rigs) > 1 and getcsp('Summary', true) !== false)
 		echo "<input type=button value='Summary' onclick='pr(\"\",null)'>&nbsp;";
  }
 
@@ -1841,7 +2557,8 @@ function pagebuttons($rig, $pg)
 	}
 
 	foreach ($list as $pagename => $data)
-		echo "<input type=button value='$pagename' onclick='pr(\"&pg=$pagename\",null)'>&nbsp;";
+		if (getcsp($pagename) !== false)
+			echo "<input type=button value='$pagename' onclick='pr(\"&pg=$pagename\",null)'>&nbsp;";
  }
 
  echo '</td><td width=100%>&nbsp;</td><td nowrap>';
@@ -1896,21 +2613,24 @@ global $sectionmap;
 # map sections to their api command
 # DEVS is a special case that will match GPU, PGA or ASC
 # so you can have a single table with both in it
-# DATE is hard coded so not in here
+# DATE and $ect are hard coded so not in here
 $sectionmap = array(
 	'RIGS' => 'version',
 	'SUMMARY' => 'summary',
 	'POOL' => 'pools',
 	'DEVS' => 'devs',
+	'EDEVS' => 'edevs',
 	'GPU' => 'devs',	// You would normally use DEVS
 	'PGA' => 'devs',	// You would normally use DEVS
 	'ASC' => 'devs',	// You would normally use DEVS
 	'NOTIFY' => 'notify',
 	'DEVDETAILS' => 'devdetails',
 	'STATS' => 'stats',
+	'ESTATS' => 'estats',
 	'CONFIG' => 'config',
 	'COIN' => 'coin',
-	'USBSTATS' => 'usbstats');
+	'USBSTATS' => 'usbstats',
+	'MM' => 'mm');
 #
 function joinfields($section1, $section2, $join, $results)
 {
@@ -2087,14 +2807,14 @@ function joinall($section1, $section2, $results)
 #
 function joinsections($sections, $results, $errors)
 {
- global $sectionmap;
+ global $sectionmap, $ect;
 
  // GPU's don't have Name,ID fields - so create them
  foreach ($results as $section => $res)
 	foreach ($res as $rig => $result)
 		foreach ($result as $name => $fields)
 		{
-			$subname = preg_replace('/[0-9]/', '', $name);
+			$subname = preg_replace('/\d/', '', $name);
 			if ($subname == 'GPU' and isset($result[$name]['GPU']))
 			{
 				$results[$section][$rig][$name]['Name'] = 'GPU';
@@ -2103,9 +2823,11 @@ function joinsections($sections, $results, $errors)
 		}
 
  foreach ($sections as $section => $fields)
-	if ($section != 'DATE' && !isset($sectionmap[$section]))
+ {
+	$sec = preg_replace('/\d/', '', $section);
+	if ($sec != 'DATE' && $sec != $ect && !isset($sectionmap[$sec]))
 	{
-		$both = explode('+', $section, 2);
+		$both = explode('+', $sec, 2);
 		if (count($both) > 1)
 		{
 			switch($both[0])
@@ -2115,33 +2837,36 @@ function joinsections($sections, $results, $errors)
 				{
 				case 'POOL':
 				case 'DEVS':
+				case 'EDEVS':
 				case 'CONFIG':
 				case 'COIN':
-					$sectionmap[$section] = $section;
-					$results[$section] = joinall($both[0], $both[1], $results);
+					$sectionmap[$sec] = $sec;
+					$results[$sec] = joinall($both[0], $both[1], $results);
 					break;
 				default:
-					$errors[] = "Error: Invalid section '$section'";
+					$errors[] = "Error: Invalid section '$section/$sec'";
 					break;
 				}
 				break;
 			case 'DEVS':
+			case 'EDEVS':
 				switch($both[1])
 				{
 				case 'NOTIFY':
 				case 'DEVDETAILS':
 				case 'USBSTATS':
 					$join = array('Name', 'ID');
-					$sectionmap[$section] = $section;
-					$results[$section] = joinfields($both[0], $both[1], $join, $results);
+					$sectionmap[$sec] = $sec;
+					$results[$sec] = joinfields($both[0], $both[1], $join, $results);
 					break;
 				case 'STATS':
+				case 'ESTATS':
 					$join = array('L' => array('Name','ID'), 'R' => array('ID'));
-					$sectionmap[$section] = $section;
-					$results[$section] = joinlr($both[0], $both[1], $join, $results);
+					$sectionmap[$sec] = $sec;
+					$results[$sec] = joinlr($both[0], $both[1], $join, $results);
 					break;
 				default:
-					$errors[] = "Error: Invalid section '$section'";
+					$errors[] = "Error: Invalid section '$section/$sec'";
 					break;
 				}
 				break;
@@ -2150,40 +2875,51 @@ function joinsections($sections, $results, $errors)
 				{
 				case 'STATS':
 					$join = array('L' => array(':POOL','POOL'), 'R' => array('ID'));
-					$sectionmap[$section] = $section;
-					$results[$section] = joinlr($both[0], $both[1], $join, $results);
+					$sectionmap[$sec] = $sec;
+					$results[$sec] = joinlr($both[0], $both[1], $join, $results);
 					break;
 				default:
-					$errors[] = "Error: Invalid section '$section'";
+					$errors[] = "Error: Invalid section '$section/$sec'";
 					break;
 				}
 				break;
 			default:
-				$errors[] = "Error: Invalid section '$section'";
+				$errors[] = "Error: Invalid section '$section/$sec'";
 				break;
 			}
 		}
 		else
-			$errors[] = "Error: Invalid section '$section'";
+			$errors[] = "Error: Invalid section '$section/$sec'";
 	}
-
+ }
  return array($results, $errors);
 }
 #
 function secmatch($section, $field)
 {
- if ($section == $field)
+ $sec = preg_replace('/\d/', '', $section);
+ $fld = preg_replace('/\d/', '', $field);
+
+ if ($sec == $fld)
 	return true;
 
- if ($section == 'DEVS'
- &&  ($field == 'GPU' || $field == 'PGA' || $field == 'ASC'))
+ # API estats returns data as STATS
+ if ($sec == 'ESTATS' && $fld == 'STATS')
+	return true;
+
+ # API devs and edevs return the device type
+ if (($sec == 'DEVS' || $sec == 'EDEVS')
+ &&  ($fld == 'GPU' || $fld == 'PGA' || $fld == 'ASC'))
 	return true;
 
  return false;
 }
 #
-function customset($showfields, $sum, $section, $rig, $isbutton, $result, $total)
+function customset($showfields, $sum, $section, $rig, $isbutton, $result, $total, $cf = NULL)
 {
+ global $rigbuttons;
+
+ $rn = 0;
  foreach ($result as $sec => $row)
  {
 	$secname = preg_replace('/\d/', '', $sec);
@@ -2200,16 +2936,25 @@ function customset($showfields, $sum, $section, $rig, $isbutton, $result, $total
 
 
 	if ($isbutton)
-		echo rigbutton($rig, $rig, $when, $row);
+		echo rigbutton($rig, $rig, $when, $row, $rigbuttons);
 	else
 	{
-		list($ignore, $class) = fmt('total', '', '', $when, $row);
+		list($ignore, $class) = fmt('total', '', '', $when, $row, $cf);
 		echo "<td align=middle$class>$rig</td>";
 	}
 
 	foreach ($showfields as $name => $one)
 	{
-		if (isset($row[$name]))
+		if ($name === '#' and $sec != 'total')
+		{
+			$rn++;
+			$value = $rn;
+			if (isset($total[$name]))
+				$total[$name]++;
+			else
+				$total[$name] = 1;
+		}
+		elseif (isset($row[$name]))
 		{
 			$value = $row[$name];
 
@@ -2230,11 +2975,14 @@ function customset($showfields, $sum, $section, $rig, $isbutton, $result, $total
 		}
 
 		if (strpos($secname, '+') === false)
-			list($showvalue, $class) = fmt($secname, $name, $value, $when, $row);
+			list($showvalue, $class) = fmt($secname, $name, $value, $when, $row, $cf);
 		else
 		{
-			$parts = explode('.', $name, 2);
-			list($showvalue, $class) = fmt($parts[0], $parts[1], $value, $when, $row);
+			if ($name != '#')
+				$parts = explode('.', $name, 2);
+			else
+				$parts[0] = $parts[1] = '#';
+			list($showvalue, $class) = fmt($parts[0], $parts[1], $value, $when, $row, $cf);
 		}
 
 		echo "<td$class align=right>$showvalue</td>";
@@ -2341,6 +3089,10 @@ function docompare($row, $test)
 	return (strcasecmp($val, $test[2]) > 0);
  case 'ge':
 	return (strcasecmp($val, $test[2]) >= 0);
+ case 'sub':
+	return (strcasecmp(substr($val, 0, strlen($test[2])), $test[2]) == 0);
+ case '!sub':
+	return (strcasecmp(substr($val, 0, strlen($test[2])), $test[2]) != 0);
  default:
 	return true;
  }
@@ -2389,6 +3141,13 @@ function ss($a, $b)
  return strcmp($a, $b);
 }
 #
+# If you are developing a customsummarypage that uses BGEN or GEN,
+# you may want to remove the '@' in front of '@eval()' to help with debugging
+# The '@' removes php comments from the web log about missing fields
+# Since there are many forks of cgminer that break the API or do not
+# keep their fork up to date with current cgminer, the addition of
+# '@' solves the problem of generating unnecessary and excessive web logs
+# about the eval()
 function genfld($row, $calc)
 {
  uksort($row, "ss");
@@ -2397,17 +3156,20 @@ function genfld($row, $calc)
 	if (strstr($calc, $name) !== FALSE)
 		$calc = str_replace($name, $value, $calc);
 
- eval("\$val = $calc;");
+ @eval("\$val = $calc;");
 
- return $val;
+ if (!isset($val))
+	return '';
+ else
+	return $val;
 }
 #
-function dogen($ext, $section, &$res, &$fields)
+function dogen($ext, $wg, $gname, $section, &$res, &$fields)
 {
- $gen = $ext[$section]['gen'];
+ $gen = $ext[$section][$wg];
 
  foreach ($gen as $fld => $calc)
-	$fields[] = "GEN.$fld";
+	$fields[] = "$gname.$fld";
 
  foreach ($res as $rig => $result)
 	foreach ($result as $sec => $row)
@@ -2416,7 +3178,7 @@ function dogen($ext, $section, &$res, &$fields)
 		if (secmatch($section, $secname))
 			foreach ($gen as $fld => $calc)
 			{
-				$name = "GEN.$fld";
+				$name = "$gname.$fld";
 
 				$val = genfld($row, $calc);
 
@@ -2424,12 +3186,16 @@ function dogen($ext, $section, &$res, &$fields)
 			}
 	}
 }
-#
+# $section is the full name including digits
 function processext($ext, $section, $res, &$fields)
 {
  global $allowgen;
 
  $res = processcompare('where', $ext, $section, $res);
+
+ // Generated fields (functions of other fields before grouping)
+ if ($allowgen === true && isset($ext[$section]['bgen']))
+	dogen($ext, 'bgen', 'BGEN', $section, $res, $fields);
 
  if (isset($ext[$section]['group']))
  {
@@ -2475,9 +3241,12 @@ function processext($ext, $section, $res, &$fields)
 					if ($calc !== null)
 						foreach ($calc as $field => $func)
 						{
-							if (!isset($interim[$grpkey]['cal'][$field]))
-								$interim[$grpkey]['cal'][$field] = array();
-							$interim[$grpkey]['cal'][$field][] = $row[$field];
+							if (isset($row[$field]))
+							{
+								if (!isset($interim[$grpkey]['cal'][$field]))
+									$interim[$grpkey]['cal'][$field] = array();
+								$interim[$grpkey]['cal'][$field][] = $row[$field];
+							}
 						}
 				}
 			}
@@ -2496,16 +3265,66 @@ function processext($ext, $section, $res, &$fields)
 	}
  }
 
- // Generated fields (functions of other fields)
+ // Generated fields (functions of other fields after grouping)
  if ($allowgen === true && isset($ext[$section]['gen']))
-	dogen($ext, $section, $res, $fields);
+	dogen($ext, 'gen', 'GEN', $section, $res, $fields);
 
  return processcompare('having', $ext, $section, $res);
+}
+# Avalon Error values in ECMM and ECHU
+function showect()
+{
+ $ecv = array(
+	'x00001' => 'Idle W',
+	'x00002' => 'MMCRCFailed W',
+	'x00004' => 'NoFan F',
+	'x00008' => 'Lock W',
+	'x00010' => 'APIfifoOverflow W',
+	'x00020' => 'RBOverflow W',
+	'x00040' => 'TooHot F',
+	'x00080' => 'HotBefore W',
+	'x00100' => 'LoopFailed F',
+	'x00200' => 'CoreTestFailed W',
+	'x00400' => 'InvalidPMU F',
+	'x00800' => 'PGFailed F',
+	'x01000' => 'NTCErr F',
+	'x02000' => 'VolErr F',
+	'x04000' => 'VCoreERR F',
+	'x08000' => 'PMUCRCFailed W',
+	'x10000' => 'InvalidPLLValue W',
+	'x20000' => 'HUFailed W');
+
+ otherrow("<td class=h colspan=9>ECHU and ECMM error codes (mouse over)</td>");
+ $count = 0;
+ foreach ($ecv as $val => $name)
+ {
+	if (($count % 9) == 0)
+	{
+		if ($count > 0)
+		{
+			endrow();
+		}
+		newrow();
+	}
+	switch (substr($name, -2))
+	{
+	 case ' W':
+		 $name .= 'arning';
+		 break;
+	 case ' F':
+		 $name .= 'atal';
+		 break;
+	}
+	echo "<td><span title='$name'>&nbsp;$val&nbsp;</span></td>";
+
+	$count++;
+ }
+ endrow();
 }
 #
 function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 {
- global $sectionmap;
+ global $sectionmap, $ect;
  global $miner, $port;
  global $rigs, $error;
  global $warnfont, $warnoff;
@@ -2519,15 +3338,16 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 	$all = explode('+', $section);
 	foreach ($all as $section)
 	{
-		if (isset($sectionmap[$section]))
+		$sec = preg_replace('/\d/', '', $section);
+		if (isset($sectionmap[$sec]))
 		{
-			$cmd = $sectionmap[$section];
+			$cmd = $sectionmap[$sec];
 			if (!isset($cmds[$cmd]))
 				$cmds[$cmd] = 1;
 		}
 		else
-			if ($section != 'DATE')
-				$errors[] = "Error: unknown section '$section' in custom summary page '$pagename'";
+			if ($sec != 'DATE' && $sec != $ect)
+				$errors[] = "Error: unknown section '$section/$sec' in custom summary page '$pagename'";
 	}
  }
 
@@ -2535,10 +3355,13 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
  foreach ($rigs as $num => $rig)
  {
 	$parts = explode(':', $rig, 3);
-	if (count($parts) >= 2)
+	if (count($parts) >= 1)
 	{
 		$miner = $parts[0];
-		$port = $parts[1];
+		if (count($parts) >= 2)
+			$port = $parts[1];
+		else
+			$port = '';
 
 		if (count($parts) > 2)
 			$name = $parts[2];
@@ -2562,6 +3385,14 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 		otherrow('<td class=bad>Bad "$rigs" array</td>');
  }
 
+ // Show API errors at the top
+ if (count($errors) > 0)
+ {
+	foreach ($errors as $err)
+		otherrow("<td colspan=100>$err</td>");
+	$errors = array();
+ }
+
  $shownsomething = false;
  if (count($results) > 0)
  {
@@ -2569,7 +3400,8 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 	$first = true;
 	foreach ($sections as $section => $fields)
 	{
-		if ($section === 'DATE')
+		$sec = preg_replace('/\d/', '', $section);
+		if ($sec === 'DATE')
 		{
 			if ($shownsomething)
 				otherrow('<td>&nbsp;</td>');
@@ -2582,7 +3414,17 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 			continue;
 		}
 
-		if ($section === 'RIGS')
+		if ($sec === $ect)
+		{
+			newtable();
+			showect();
+			endtable();
+			// On top of the next table
+			$shownsomething = false;
+			continue;
+		}
+
+		if ($sec === 'RIGS')
 		{
 			if ($shownsomething)
 				otherrow('<td>&nbsp;</td>');
@@ -2594,17 +3436,23 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 			continue;
 		}
 
-		if (isset($results[$sectionmap[$section]]))
+		if (isset($results[$sectionmap[$sec]]))
 		{
-			$rigresults = processext($ext, $section, $results[$sectionmap[$section]], $fields);
+			// use the full section name
+			if (isset($ext[$section]['fmt']))
+				$cf = $ext[$section]['fmt'];
+			else
+				$cf = NULL;
+
+			$rigresults = processext($ext, $section, $results[$sectionmap[$sec]], $fields);
 
 			$showfields = array();
 			$showhead = array();
 			foreach ($fields as $field)
 				foreach ($rigresults as $result)
-					foreach ($result as $sec => $row)
+					foreach ($result as $secn => $row)
 					{
-						$secname = preg_replace('/\d/', '', $sec);
+						$secname = preg_replace('/\d/', '', $secn);
 						if (secmatch($section, $secname))
 						{
 							if ($field === '*')
@@ -2618,6 +3466,11 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 									else
 										$showhead[$f] = 1;
 								}
+							}
+							elseif ($field === '#')
+							{
+								$showfields[$field] = 1;
+								$showhead[$field] = 1;
 							}
 							elseif (isset($row[$field]))
 							{
@@ -2647,10 +3500,10 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
 				$add = array('total' => array());
 
 				foreach ($rigresults as $num => $result)
-					$total = customset($showfields, $sum, $section, $num, true, $result, $total);
+					$total = customset($showfields, $sum, $section, $num, true, $result, $total, $cf);
 
 				if (count($total) > 0)
-					customset($showfields, $sum, $section, '&Sigma;', false, $add, $total);
+					customset($showfields, $sum, $section, '&Sigma;', false, $add, $total, $cf);
 
 				$first = false;
 
@@ -2671,7 +3524,7 @@ function processcustompage($pagename, $sections, $sum, $ext, $namemap)
  }
 }
 #
-function showcustompage($pagename)
+function showcustompage($pagename, $systempage = false)
 {
  global $customsummarypages;
  global $placebuttons;
@@ -2679,22 +3532,22 @@ function showcustompage($pagename)
  if ($placebuttons == 'top' || $placebuttons == 'both')
 	pagebuttons(null, $pagename);
 
- if (!isset($customsummarypages[$pagename]))
+ if ($systempage === false && !isset($customsummarypages[$pagename]))
  {
 	otherrow("<td colspan=100 class=bad>Unknown custom summary page '$pagename'</td>");
 	return;
  }
 
- $c = count($customsummarypages[$pagename]);
- if ($c < 2 || $c > 3)
+ $csp = getcsp($pagename, $systempage);
+ if ($csp === false)
  {
-	$rw = "<td colspan=100 class=bad>Invalid custom summary page '$pagename' (";
-	$rw .= count($customsummarypages[$pagename]).')</td>';
-	otherrow($rw);
+	otherrow("<td colspan=100 class=bad>Invalid custom summary page '$pagename'</td>");
 	return;
  }
 
- $page = $customsummarypages[$pagename][0];
+ degen($csp);
+
+ $page = $csp[0];
  $namemap = array();
  foreach ($page as $name => $fields)
  {
@@ -2715,10 +3568,10 @@ function showcustompage($pagename)
  }
 
  $ext = null;
- if (isset($customsummarypages[$pagename][2]))
-	$ext = $customsummarypages[$pagename][2];
+ if (isset($csp[2]))
+	$ext = $csp[2];
 
- $sum = $customsummarypages[$pagename][1];
+ $sum = $csp[1];
  if ($sum === null)
 	$sum = array();
 
@@ -2778,7 +3631,7 @@ function onlylogin()
 #
 function checklogin()
 {
- global $allowcustompages, $customsummarypages;
+ global $allowcustompages;
  global $readonly, $userlist, $ses;
 
  $out = trim(getparam('logout', true));
@@ -2836,7 +3689,7 @@ function checklogin()
  {
 	// Ensure at least one exists
 	foreach ($userlist['def'] as $pg)
-		if (isset($customsummarypages[$pg]))
+		if (getcsp($pg) !== false)
 			return true;
  }
 
@@ -2850,7 +3703,7 @@ function display()
  global $mcast, $mcastexpect;
  global $readonly, $notify, $rigs;
  global $ignorerefresh, $autorefresh;
- global $allowcustompages, $customsummarypages;
+ global $allowcustompages;
  global $placebuttons;
  global $userlist, $ses;
 
@@ -2896,10 +3749,13 @@ function display()
 		if ($rig != null and $rig != '' and $rig >= 0 and $rig < count($rigs))
 		{
 			$parts = explode(':', $rigs[$rig], 3);
-			if (count($parts) >= 2)
+			if (count($parts) >= 1)
 			{
 				$miner = $parts[0];
-				$port = $parts[1];
+				if (count($parts) >= 2)
+					$port = $parts[1];
+				else
+					$port = '';
 
 				if ($readonly !== true)
 					$preprocess = $arg;
@@ -2923,7 +3779,7 @@ function display()
 		{
 			if ($userlist !== null && isset($userlist['def']))
 				foreach ($userlist['def'] as $pglook)
-					if (isset($customsummarypages[$pglook]))
+					if (getcsp($pglook) !== false)
 					{
 						$pg = $pglook;
 						break;
@@ -2934,7 +3790,7 @@ function display()
 	if ($pg !== null && $pg !== '')
 	{
 		htmlhead($mcerr, false, null, $pg);
-		showcustompage($pg, $mcerr);
+		showcustompage($pg);
 		return;
 	}
  }
@@ -2948,10 +3804,13 @@ function display()
  if (count($rigs) == 1)
  {
 	$parts = explode(':', $rigs[0], 3);
-	if (count($parts) >= 2)
+	if (count($parts) >= 1)
 	{
 		$miner = $parts[0];
-		$port = $parts[1];
+		if (count($parts) >= 2)
+			$port = $parts[1];
+		else
+			$port = '';
 
 		htmlhead($mcerr, true, 0);
 		doOne(0, $preprocess);
@@ -2968,10 +3827,13 @@ function display()
  if ($rig != null and $rig != '' and $rig >= 0 and $rig < count($rigs))
  {
 	$parts = explode(':', $rigs[$rig], 3);
-	if (count($parts) >= 2)
+	if (count($parts) >= 1)
 	{
 		$miner = $parts[0];
-		$port = $parts[1];
+		if (count($parts) >= 2)
+			$port = $parts[1];
+		else
+			$port = '';
 
 		htmlhead($mcerr, true, 0);
 		doOne($rig, $preprocess);
@@ -2987,28 +3849,11 @@ function display()
 
  htmlhead($mcerr, false, null);
 
- if ($placebuttons == 'top' || $placebuttons == 'both')
-	pagebuttons(null, null);
-
  if ($preprocess != null)
 	process(array($preprocess => $preprocess), $rig);
 
- newtable();
- doforeach('version', 'rig summary', array(), array(), true);
- $sum = array('MHS av', 'Getworks', 'Found Blocks', 'Accepted', 'Rejected', 'Discarded', 'Stale', 'Utility', 'Local Work', 'Total MH', 'Work Utility', 'Diff1 Shares', 'Diff1 Work', 'Difficulty Accepted', 'Difficulty Rejected', 'Difficulty Stale');
- doforeach('summary', 'summary information', $sum, array(), false);
- endtable();
- otherrow('<td><br><br></td>');
- newtable();
- doforeach('devs', 'device list', $sum, array(''=>'','ID'=>'','Name'=>''), false);
- endtable();
- otherrow('<td><br><br></td>');
- newtable();
- doforeach('pools', 'pool list', $sum, array(''=>''), false);
- endtable();
-
- if ($placebuttons == 'bot' || $placebuttons == 'both')
-	pagebuttons(null, null);
+ if (getcsp('Summary', true) !== false)
+	showcustompage('Summary', true);
 }
 #
 if ($mcast === true)

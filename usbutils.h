@@ -1,6 +1,6 @@
 /*
  * Copyright 2012-2013 Andrew Smith
- * Copyright 2013 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2013-2014 Con Kolivas <kernel@kolivas.org>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -29,6 +29,22 @@
 #define FTDI_REQUEST_BAUD ((uint8_t)3)
 #define FTDI_REQUEST_DATA ((uint8_t)4)
 #define FTDI_REQUEST_LATENCY ((uint8_t)9)
+#define FTDI_REQUEST_BITMODE ((uint8_t)11)
+
+#define FTDI_BITMODE_RESET   ((uint8_t)0x00)
+#define FTDI_BITMODE_BITBANG ((uint8_t)0x01)
+#define FTDI_BITMODE_MPSSE   ((uint8_t)0x02)
+#define FTDI_BITMODE_SYNCBB  ((uint8_t)0x04)
+#define FTDI_BITMODE_MCU     ((uint8_t)0x08)
+#define FTDI_BITMODE_OPTO    ((uint8_t)0x10)
+#define FTDI_BITMODE_CBUS    ((uint8_t)0x20)
+#define FTDI_BITMODE_SYNCFF  ((uint8_t)0x40)
+#define FTDI_BITMODE_FT1284  ((uint8_t)0x80)
+
+#define FTDI_SETDTR_LOW  0x0100
+#define FTDI_SETDTR_HIGH 0x0101
+#define FTDI_SETRTS_LOW  0x0200
+#define FTDI_SETRTS_HIGH 0x0202
 
 #define FTDI_VALUE_RESET 0
 #define FTDI_VALUE_PURGE_RX 1
@@ -64,6 +80,11 @@
 #define FTDI_VALUE_BAUD_CMR_57 0x80d0
 #define FTDI_INDEX_BAUD_CMR_57 0x0200
 
+// FTDI
+#define FTDI_VALUE_DATA_BTS 8
+#define FTDI_VALUE_BAUD_BTS 0x001A
+#define FTDI_INDEX_BAUD_BTS 0x0000
+
 // Data control
 #define FTDI_VALUE_DATA_BFL 0
 #define FTDI_VALUE_DATA_BAS FTDI_VALUE_DATA_BFL
@@ -84,6 +105,12 @@
 #define CP210X_VALUE_UART_ENABLE 0x0001
 #define CP210X_VALUE_DATA 0x0303
 #define CP210X_DATA_BAUD 0x0001c200
+
+#define CP210X_SET_LINE_CTL 0x03
+#define CP210X_BITS_DATA_MASK 0x0f00
+#define CP210X_BITS_DATA_8 0x0800
+#define CP210X_BITS_PARITY_MARK 0x0030
+#define CP210X_BITS_PARITY_SPACE 0x0040
 
 
 // For 0x067b:0x2303 Prolific PL2303 - ICA
@@ -135,26 +162,51 @@ struct usb_intinfo {
 enum sub_ident {
 	IDENT_UNK = 0,
 	IDENT_AMU,
+	IDENT_ANT,
+	IDENT_ANU,
+	IDENT_AS3,
+	IDENT_AU3,
 	IDENT_AVA,
+	IDENT_AV2,
+	IDENT_AV4,
+	IDENT_AV7,
+	IDENT_AV8,
+	IDENT_AVM,
 	IDENT_BAJ,
 	IDENT_BAL,
 	IDENT_BAM,
 	IDENT_BAS,
 	IDENT_BBF,
+	IDENT_BET,
 	IDENT_BF1,
 	IDENT_BFL,
 	IDENT_BLT,
+	IDENT_BMA,
+	IDENT_BSC,
+	IDENT_BSD,
+	IDENT_BSE,
 	IDENT_BTB,
 	IDENT_BXF,
+	IDENT_BXM,
 	IDENT_CMR1,
 	IDENT_CMR2,
+	IDENT_CTA,
 	IDENT_DRB,
+	IDENT_GSC,
+	IDENT_GSD,
+	IDENT_GSE,
+	IDENT_GSH,
+	IDENT_GSI,
+	IDENT_GSF,
 	IDENT_HFA,
+	IDENT_HRO,
 	IDENT_ICA,
 	IDENT_KLN,
+	IDENT_LIN,
 	IDENT_LLT,
 	IDENT_MMQ,
-	IDENT_NF1
+	IDENT_NFU,
+	IDENT_OSM
 };
 
 struct usb_find_devices {
@@ -177,6 +229,8 @@ struct usb_find_devices {
  * baud rate, to avoid status bytes being interleaved in larger transfers. */
 #define LATENCY_UNUSED 0
 #define LATENCY_STD 32
+#define LATENCY_ANTS1 10
+#define LATENCY_ANTS3 10
 
 enum usb_types {
 	USB_TYPE_STD = 0,
@@ -207,6 +261,8 @@ struct cg_usb_device {
 	char buffer[USB_MAX_READ];
 	uint32_t bufsiz;
 	uint32_t bufamt;
+	bool usb11; // USB 1.1 flag for convenience
+	bool tt; // Enable the transaction translator
 };
 
 #define USB_NOSTAT 0
@@ -278,8 +334,11 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_PROGRAMSTATUS, "ProgramStatus") \
 	USB_ADD_COMMAND(C_PROGRAMSTATUS2, "ProgramStatus2") \
 	USB_ADD_COMMAND(C_FINALPROGRAMSTATUS, "FinalProgramStatus") \
-	USB_ADD_COMMAND(C_SETCLOCK, "SetClock") \
+	USB_ADD_COMMAND(C_SETCLOCK, "SetClock")			    \
+	USB_ADD_COMMAND(C_SETPARITY, "SetParity") \
 	USB_ADD_COMMAND(C_REPLYSETCLOCK, "ReplySetClock") \
+	USB_ADD_COMMAND(C_SETVOLT, "SetVolt") \
+	USB_ADD_COMMAND(C_REPLYSETVOLT, "ReplySetVolt") \
 	USB_ADD_COMMAND(C_REQUESTUSERCODE, "RequestUserCode") \
 	USB_ADD_COMMAND(C_GETUSERCODE, "GetUserCode") \
 	USB_ADD_COMMAND(C_REQUESTTEMPERATURE, "RequestTemperature") \
@@ -326,6 +385,9 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_GET_AVALON_RESET, "GetAvalonReset") \
 	USB_ADD_COMMAND(C_FTDI_STATUS, "FTDIStatus") \
 	USB_ADD_COMMAND(C_ENABLE_UART, "EnableUART") \
+	USB_ADD_COMMAND(C_ANU_SEND_CMD, "ANUSendcmd") \
+	USB_ADD_COMMAND(C_ANU_SEND_RDREG, "ANUSendrdreg") \
+	USB_ADD_COMMAND(C_ANU_SEND_VOLT, "ANUSendvolt") \
 	USB_ADD_COMMAND(C_BB_SET_VOLTAGE, "SetCoreVoltage") \
 	USB_ADD_COMMAND(C_BB_GET_VOLTAGE, "GetCoreVoltage") \
 	USB_ADD_COMMAND(C_BF_RESET, "BFReset") \
@@ -344,11 +406,24 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_BF_IDENTIFY, "BFIdentify") \
 	USB_ADD_COMMAND(C_BF_DETECTCHIPS, "BFDetectChips") \
 	USB_ADD_COMMAND(C_BF_CONFIG, "BFConfig") \
-        USB_ADD_COMMAND(C_BF_GETTEMP, "BFGetTemp") \
+	USB_ADD_COMMAND(C_BF_GETTEMP, "BFGetTemp") \
+	USB_ADD_COMMAND(C_BF_AUTOTUNE, "BFAutoTune") \
 	USB_ADD_COMMAND(C_ATMEL_RESET, "AtmelReset") \
 	USB_ADD_COMMAND(C_ATMEL_OPEN, "AtmelOpen") \
 	USB_ADD_COMMAND(C_ATMEL_INIT, "AtmelInit") \
 	USB_ADD_COMMAND(C_ATMEL_CLOSE, "AtmelClose") \
+	USB_ADD_COMMAND(C_AVA2_READ, "Ava2Read") \
+	USB_ADD_COMMAND(C_AVA2_WRITE, "Ava2Write") \
+	USB_ADD_COMMAND(C_AVA4_READ, "Ava4Read") \
+	USB_ADD_COMMAND(C_AVA4_WRITE, "Ava4Write") \
+	USB_ADD_COMMAND(C_AVA7_READ, "Ava7Read") \
+	USB_ADD_COMMAND(C_AVA7_WRITE, "Ava7Write") \
+	USB_ADD_COMMAND(C_AVA8_READ, "Ava8Read") \
+	USB_ADD_COMMAND(C_AVA8_WRITE, "Ava8Write") \
+	USB_ADD_COMMAND(C_AVAM_READ, "AvamRead") \
+	USB_ADD_COMMAND(C_AVAM_WRITE, "AvamWrite") \
+        USB_ADD_COMMAND(C_BET_WRITE, "BlockErupterWrite") \
+        USB_ADD_COMMAND(C_BET_READ, "BlockErupterRead") \
 	USB_ADD_COMMAND(C_BF1_REQINFO, "BF1RequestInfo") \
 	USB_ADD_COMMAND(C_BF1_GETINFO, "BF1GetInfo") \
 	USB_ADD_COMMAND(C_BF1_REQRESET, "BF1RequestReset") \
@@ -366,6 +441,25 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_BXF_MAXROLL, "BXFMaxRoll") \
 	USB_ADD_COMMAND(C_BXF_FLUSH, "BXFFlush") \
 	USB_ADD_COMMAND(C_BXF_CLOCK, "BXFClock") \
+	USB_ADD_COMMAND(C_BXF_LEDMODE, "BXFLedMode") \
+	USB_ADD_COMMAND(C_BXF_DEBUGMODE, "BXFDebugMode") \
+	USB_ADD_COMMAND(C_BXM_FLUSH, "BXMFlush") \
+	USB_ADD_COMMAND(C_BXM_SRESET, "BXMSReset") \
+	USB_ADD_COMMAND(C_BXM_SETLATENCY, "BXMSetLatency") \
+	USB_ADD_COMMAND(C_BXM_SECR, "BXMSetEventCharRequest") \
+	USB_ADD_COMMAND(C_BXM_SETBITMODE, "BXMSetBitmodeRequest") \
+	USB_ADD_COMMAND(C_BXM_CLOCK, "BXMClock") \
+	USB_ADD_COMMAND(C_BXM_CLOCKDIV, "BXMClockDiv") \
+	USB_ADD_COMMAND(C_BXM_LOOP, "BXMLoop") \
+	USB_ADD_COMMAND(C_BXM_ADBUS, "BXMADBus") \
+	USB_ADD_COMMAND(C_BXM_ACBUS, "BXMACBus") \
+	USB_ADD_COMMAND(C_BXM_PURGERX, "BXMPurgeRX") \
+	USB_ADD_COMMAND(C_BXM_PURGETX, "BXMPurgeTX") \
+	USB_ADD_COMMAND(C_BXM_CSLOW, "BXMCSLow") \
+	USB_ADD_COMMAND(C_BXM_CSHIGH, "BXMCSHigh") \
+	USB_ADD_COMMAND(C_BXM_RESET, "BXMReset") \
+	USB_ADD_COMMAND(C_BXM_SPITX, "BXMSPITX") \
+	USB_ADD_COMMAND(C_BXM_SPIRX, "BXMSPIRX") \
 	USB_ADD_COMMAND(C_HF_RESET, "HFReset") \
 	USB_ADD_COMMAND(C_HF_PLL_CONFIG, "HFPLLConfig") \
 	USB_ADD_COMMAND(C_HF_ADDRESS, "HFAddress") \
@@ -384,9 +478,16 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_HF_WORK_RESTART, "HFWorkRestart") \
 	USB_ADD_COMMAND(C_HF_GWQSTATS, "HFGWQStats") \
 	USB_ADD_COMMAND(C_HF_NOTICE, "HFNotice") \
+	USB_ADD_COMMAND(C_HF_PING, "HFPing") \
+	USB_ADD_COMMAND(C_HF_FAN, "HFFan") \
+	USB_ADD_COMMAND(C_HRO_WRITE, "HROWrite") \
+	USB_ADD_COMMAND(C_HRO_READ, "HRORead") \
+	USB_ADD_COMMAND(C_OP_NAME, "HFName") \
 	USB_ADD_COMMAND(C_HF_GETHEADER, "HFGetHeader") \
 	USB_ADD_COMMAND(C_HF_GETDATA, "HFGetData") \
 	USB_ADD_COMMAND(C_HF_CLEAR_READ, "HFClearRead") \
+	USB_ADD_COMMAND(C_CTA_READ, "CTARead") \
+	USB_ADD_COMMAND(C_CTA_WRITE, "CTAWrite") \
 	USB_ADD_COMMAND(C_MCP_GETGPIOSETTING, "MCPGetGPIOSetting") \
 	USB_ADD_COMMAND(C_MCP_SETGPIOSETTING, "MCPSetGPIOSetting") \
 	USB_ADD_COMMAND(C_MCP_GETGPIOPINVAL, "MCPGetGPIOPinVal") \
@@ -396,7 +497,14 @@ struct cg_usb_info {
 	USB_ADD_COMMAND(C_MCP_SETSPISETTING, "MCPSetSPISetting") \
 	USB_ADD_COMMAND(C_MCP_GETSPISETTING, "MCPGetSPISetting") \
 	USB_ADD_COMMAND(C_MCP_SPITRANSFER, "MCPSPITransfer") \
-	USB_ADD_COMMAND(C_MCP_SPICANCEL, "MCPSPICancel")
+	USB_ADD_COMMAND(C_MCP_SPICANCEL, "MCPSPICancel") \
+	USB_ADD_COMMAND(C_BITMAIN_SEND, "BitmainSend") \
+	USB_ADD_COMMAND(C_BITMAIN_READ, "BitmainRead") \
+	USB_ADD_COMMAND(C_BITMAIN_TOKEN_TXCONFIG, "BitmainTokenTxConfig") \
+	USB_ADD_COMMAND(C_BITMAIN_TOKEN_TXTASK, "BitmainTokenTxTask") \
+	USB_ADD_COMMAND(C_BITMAIN_TOKEN_RXSTATUS, "BitmainTokenRxStatus") \
+	USB_ADD_COMMAND(C_BITMAIN_DATA_RXSTATUS, "BitmainDataRxStatus") \
+	USB_ADD_COMMAND(C_BITMAIN_DATA_RXNONCE, "BitmainDataRxNonce")
 
 /* Create usb_cmds enum from USB_PARSE_COMMANDS macro */
 enum usb_cmds {
@@ -410,17 +518,24 @@ struct cgpu_info;
 bool async_usb_transfers(void);
 void cancel_usb_transfers(void);
 void usb_all(int level);
+void usb_list(void);
 const char *usb_cmdname(enum usb_cmds cmd);
 void usb_applog(struct cgpu_info *cgpu, enum usb_cmds cmd, char *msg, int amount, int err);
+void blacklist_cgpu(struct cgpu_info *cgpu);
+void whitelist_cgpu(struct cgpu_info *cgpu);
 void usb_nodev(struct cgpu_info *cgpu);
 struct cgpu_info *usb_copy_cgpu(struct cgpu_info *orig);
 struct cgpu_info *usb_alloc_cgpu(struct device_drv *drv, int threads);
 struct cgpu_info *usb_free_cgpu(struct cgpu_info *cgpu);
 void usb_uninit(struct cgpu_info *cgpu);
 bool usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct usb_find_devices *found);
-void usb_detect(struct device_drv *drv, struct cgpu_info *(*device_detect)(struct libusb_device *, struct usb_find_devices *));
+void __usb_detect(struct device_drv *drv, struct cgpu_info *(*device_detect)(struct libusb_device *, struct usb_find_devices *),
+		  bool single);
+#define usb_detect(drv, cgpu) __usb_detect(drv, cgpu, false)
+#define usb_detect_one(drv, cgpu) __usb_detect(drv, cgpu, true)
 struct api_data *api_usb_stats(int *count);
 void update_usb_stats(struct cgpu_info *cgpu);
+void usb_reset(struct cgpu_info *cgpu);
 int _usb_read(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t bufsiz, int *processed, int timeout, const char *end, enum usb_cmds cmd, bool readonce, bool cancellable);
 int _usb_write(struct cgpu_info *cgpu, int intinfo, int epinfo, char *buf, size_t bufsiz, int *processed, int timeout, enum usb_cmds);
 int _usb_transfer(struct cgpu_info *cgpu, uint8_t request_type, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint32_t *data, int siz, unsigned int timeout, enum usb_cmds cmd);
