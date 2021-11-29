@@ -44,7 +44,7 @@ static void ants2_detect(__maybe_unused bool hotplug)
 #include "hexdump.c"
 #include "util.h"
 #include <fcntl.h>
-#include <unistd.h>
+//#include <unistd.h>
 #include <math.h>
 
 #ifdef USE_ANT_S1
