@@ -308,108 +308,108 @@ configure:7852: $? = 0
 configure:7852: result: yes
 configure:8108: checking for objdir
 configure:8123: result: .libs
-configure:8383: checking if gcc supports -fno-rtti -fno-exceptions
-configure:8401: gcc -c -g -O2  -fno-rtti -fno-exceptions conftest.c >&5
+configure:8387: checking if gcc supports -fno-rtti -fno-exceptions
+configure:8405: gcc -c -g -O2  -fno-rtti -fno-exceptions conftest.c >&5
 cc1: warning: command line option '-fno-rtti' is valid for C++/ObjC++ but not for C
-configure:8405: $? = 0
-configure:8418: result: no
-configure:8776: checking for gcc option to produce PIC
-configure:8783: result: -fPIC -DPIC
-configure:8791: checking if gcc PIC flag -fPIC -DPIC works
-configure:8809: gcc -c -g -O2  -fPIC -DPIC -DPIC conftest.c >&5
-configure:8813: $? = 0
-configure:8826: result: yes
-configure:8855: checking if gcc static flag -static works
-configure:8883: result: yes
-configure:8898: checking if gcc supports -c -o file.o
-configure:8919: gcc -c -g -O2  -o out/conftest2.o conftest.c >&5
-configure:8923: $? = 0
-configure:8945: result: yes
-configure:8953: checking if gcc supports -c -o file.o
-configure:9000: result: yes
-configure:9033: checking whether the gcc linker (/usr/bin/ld -m elf_x86_64) supports shared libraries
-configure:10296: result: yes
-configure:10333: checking whether -lc should be explicitly linked in
-configure:10341: gcc -c -g -O2  conftest.c >&5
-configure:10344: $? = 0
-configure:10359: gcc -shared  -fPIC -DPIC conftest.o  -v -Wl,-soname -Wl,conftest -o conftest 2\>\&1 \| /bin/grep  -lc  \>/dev/null 2\>\&1
-configure:10362: $? = 0
-configure:10376: result: no
-configure:10536: checking dynamic linker characteristics
-configure:11117: gcc -o conftest -g -O2   -Wl,-rpath -Wl,/foo conftest.c  >&5
-configure:11117: $? = 0
-configure:11366: result: GNU/Linux ld.so
-configure:11488: checking how to hardcode library paths into programs
-configure:11513: result: immediate
-configure:12061: checking whether stripping libraries is possible
-configure:12066: result: yes
-configure:12101: checking if libtool supports shared libraries
-configure:12103: result: yes
-configure:12106: checking whether to build shared libraries
-configure:12131: result: yes
-configure:12134: checking whether to build static libraries
-configure:12138: result: yes
-configure:12218: checking for windres
-configure:12248: result: no
-configure:12345: checking for inline
-configure:12361: gcc -c -g -O2  conftest.c >&5
-configure:12361: $? = 0
-configure:12369: result: inline
-configure:12394: checking operating system
-configure:12398: result: Linux
-configure:12437: checking for clock_gettime in -lrt
-configure:12462: gcc -o conftest -g -O2   conftest.c -lrt   >&5
-configure:12462: $? = 0
-configure:12471: result: yes
-configure:12488: checking libudev.h usability
-configure:12488: gcc -c -g -O2  conftest.c >&5
-configure:12488: $? = 0
-configure:12488: result: yes
-configure:12488: checking libudev.h presence
-configure:12488: gcc -E  conftest.c
-configure:12488: $? = 0
-configure:12488: result: yes
-configure:12488: checking for libudev.h
-configure:12488: result: yes
-configure:12500: checking for udev_new in -ludev
-configure:12525: gcc -o conftest -g -O2   conftest.c -ludev   >&5
-configure:12525: $? = 0
-configure:12534: result: yes
-configure:12573: checking poll.h usability
-configure:12573: gcc -c -g -O2  conftest.c >&5
-configure:12573: $? = 0
-configure:12573: result: yes
-configure:12573: checking poll.h presence
-configure:12573: gcc -E  conftest.c
-configure:12573: $? = 0
-configure:12573: result: yes
-configure:12573: checking for poll.h
-configure:12573: result: yes
-configure:12713: checking sys/timerfd.h usability
-configure:12713: gcc -c -g -O2  conftest.c >&5
-configure:12713: $? = 0
-configure:12713: result: yes
-configure:12713: checking sys/timerfd.h presence
-configure:12713: gcc -E  conftest.c
-configure:12713: $? = 0
-configure:12713: result: yes
-configure:12713: checking for sys/timerfd.h
-configure:12713: result: yes
-configure:12733: checking whether TFD_NONBLOCK is declared
-configure:12733: gcc -c -g -O2  conftest.c >&5
-configure:12733: $? = 0
-configure:12733: result: yes
-configure:12745: checking whether to use timerfd for timing
-configure:12752: result: yes
-configure:12763: checking for struct timespec
-configure:12763: gcc -c -g -O2  conftest.c >&5
-configure:12763: $? = 0
-configure:12763: gcc -c -g -O2  conftest.c >&5
+configure:8409: $? = 0
+configure:8422: result: no
+configure:8780: checking for gcc option to produce PIC
+configure:8787: result: -fPIC -DPIC
+configure:8795: checking if gcc PIC flag -fPIC -DPIC works
+configure:8813: gcc -c -g -O2  -fPIC -DPIC -DPIC conftest.c >&5
+configure:8817: $? = 0
+configure:8830: result: yes
+configure:8859: checking if gcc static flag -static works
+configure:8887: result: yes
+configure:8902: checking if gcc supports -c -o file.o
+configure:8923: gcc -c -g -O2  -o out/conftest2.o conftest.c >&5
+configure:8927: $? = 0
+configure:8949: result: yes
+configure:8957: checking if gcc supports -c -o file.o
+configure:9004: result: yes
+configure:9037: checking whether the gcc linker (/usr/bin/ld -m elf_x86_64) supports shared libraries
+configure:10300: result: yes
+configure:10337: checking whether -lc should be explicitly linked in
+configure:10345: gcc -c -g -O2  conftest.c >&5
+configure:10348: $? = 0
+configure:10363: gcc -shared  -fPIC -DPIC conftest.o  -v -Wl,-soname -Wl,conftest -o conftest 2\>\&1 \| /bin/grep  -lc  \>/dev/null 2\>\&1
+configure:10366: $? = 0
+configure:10380: result: no
+configure:10540: checking dynamic linker characteristics
+configure:11121: gcc -o conftest -g -O2   -Wl,-rpath -Wl,/foo conftest.c  >&5
+configure:11121: $? = 0
+configure:11370: result: GNU/Linux ld.so
+configure:11492: checking how to hardcode library paths into programs
+configure:11517: result: immediate
+configure:12065: checking whether stripping libraries is possible
+configure:12070: result: yes
+configure:12105: checking if libtool supports shared libraries
+configure:12107: result: yes
+configure:12110: checking whether to build shared libraries
+configure:12135: result: yes
+configure:12138: checking whether to build static libraries
+configure:12142: result: yes
+configure:12222: checking for windres
+configure:12252: result: no
+configure:12349: checking for inline
+configure:12365: gcc -c -g -O2  conftest.c >&5
+configure:12365: $? = 0
+configure:12373: result: inline
+configure:12398: checking operating system
+configure:12402: result: Linux
+configure:12441: checking for clock_gettime in -lrt
+configure:12466: gcc -o conftest -g -O2   conftest.c -lrt   >&5
+configure:12466: $? = 0
+configure:12475: result: yes
+configure:12492: checking libudev.h usability
+configure:12492: gcc -c -g -O2  conftest.c >&5
+configure:12492: $? = 0
+configure:12492: result: yes
+configure:12492: checking libudev.h presence
+configure:12492: gcc -E  conftest.c
+configure:12492: $? = 0
+configure:12492: result: yes
+configure:12492: checking for libudev.h
+configure:12492: result: yes
+configure:12504: checking for udev_new in -ludev
+configure:12529: gcc -o conftest -g -O2   conftest.c -ludev   >&5
+configure:12529: $? = 0
+configure:12538: result: yes
+configure:12577: checking poll.h usability
+configure:12577: gcc -c -g -O2  conftest.c >&5
+configure:12577: $? = 0
+configure:12577: result: yes
+configure:12577: checking poll.h presence
+configure:12577: gcc -E  conftest.c
+configure:12577: $? = 0
+configure:12577: result: yes
+configure:12577: checking for poll.h
+configure:12577: result: yes
+configure:12717: checking sys/timerfd.h usability
+configure:12717: gcc -c -g -O2  conftest.c >&5
+configure:12717: $? = 0
+configure:12717: result: yes
+configure:12717: checking sys/timerfd.h presence
+configure:12717: gcc -E  conftest.c
+configure:12717: $? = 0
+configure:12717: result: yes
+configure:12717: checking for sys/timerfd.h
+configure:12717: result: yes
+configure:12737: checking whether TFD_NONBLOCK is declared
+configure:12737: gcc -c -g -O2  conftest.c >&5
+configure:12737: $? = 0
+configure:12737: result: yes
+configure:12749: checking whether to use timerfd for timing
+configure:12756: result: yes
+configure:12767: checking for struct timespec
+configure:12767: gcc -c -g -O2  conftest.c >&5
+configure:12767: $? = 0
+configure:12767: gcc -c -g -O2  conftest.c >&5
 conftest.c: In function 'main':
 conftest.c:68:30: error: expected expression before ')' token
  if (sizeof ((struct timespec)))
                               ^
-configure:12763: $? = 1
+configure:12767: $? = 1
 configure: failed program was:
 | /* confdefs.h */
 | #define PACKAGE_NAME "libusb"
@@ -483,32 +483,32 @@ configure: failed program was:
 |   ;
 |   return 0;
 | }
-configure:12763: result: yes
-configure:12833: gcc -c -g -O2 -Werror -fvisibility=hidden  conftest.c >&5
-configure:12833: $? = 0
-configure:12861: gcc -c -g -O2 -Wno-pointer-sign  conftest.c >&5
-configure:12861: $? = 0
-configure:12870: checking for sigaction
-configure:12870: gcc -o conftest -g -O2   conftest.c -ludev  -pthread >&5
-configure:12870: $? = 0
-configure:12870: result: yes
-configure:12889: checking sys/time.h usability
-configure:12889: gcc -c -g -O2  conftest.c >&5
-configure:12889: $? = 0
-configure:12889: result: yes
-configure:12889: checking sys/time.h presence
-configure:12889: gcc -E  conftest.c
-configure:12889: $? = 0
-configure:12889: result: yes
-configure:12889: checking for sys/time.h
-configure:12889: result: yes
-configure:12901: checking for gettimeofday
-configure:12901: gcc -o conftest -g -O2   conftest.c -ludev  -pthread >&5
-configure:12901: $? = 0
-configure:12901: result: yes
-configure:13031: checking that generated files are newer than configure
-configure:13037: result: done
-configure:13096: creating ./config.status
+configure:12767: result: yes
+configure:12837: gcc -c -g -O2 -Werror -fvisibility=hidden  conftest.c >&5
+configure:12837: $? = 0
+configure:12865: gcc -c -g -O2 -Wno-pointer-sign  conftest.c >&5
+configure:12865: $? = 0
+configure:12874: checking for sigaction
+configure:12874: gcc -o conftest -g -O2   conftest.c -ludev  -pthread >&5
+configure:12874: $? = 0
+configure:12874: result: yes
+configure:12893: checking sys/time.h usability
+configure:12893: gcc -c -g -O2  conftest.c >&5
+configure:12893: $? = 0
+configure:12893: result: yes
+configure:12893: checking sys/time.h presence
+configure:12893: gcc -E  conftest.c
+configure:12893: $? = 0
+configure:12893: result: yes
+configure:12893: checking for sys/time.h
+configure:12893: result: yes
+configure:12905: checking for gettimeofday
+configure:12905: gcc -o conftest -g -O2   conftest.c -ludev  -pthread >&5
+configure:12905: $? = 0
+configure:12905: result: yes
+configure:13035: checking that generated files are newer than configure
+configure:13041: result: done
+configure:13100: creating ./config.status
 
 ## ---------------------- ##
 ## Running config.status. ##
@@ -529,6 +529,7 @@ config.status:1172: creating libusb-1.0.pc
 config.status:1172: creating Makefile
 config.status:1172: creating libusb/Makefile
 config.status:1172: creating config.h
+config.status:1353: config.h is unchanged
 config.status:1401: executing depfiles commands
 config.status:1401: executing libtool commands
 
