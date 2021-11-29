@@ -90,10 +90,8 @@ build_triplet = x86_64-pc-linux-gnu
 host_triplet = x86_64-pc-linux-gnu
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
-	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
-	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
-	$(top_srcdir)/libusb/version.h $(top_srcdir)/configure.ac
+am__aclocal_m4_deps = $(top_srcdir)/libusb/version.h \
+	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
@@ -191,9 +189,11 @@ CTAGS = ctags
 CSCOPE = cscope
 DIST_SUBDIRS = $(SUBDIRS)
 am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in \
-	$(srcdir)/libusb-1.0.pc.in AUTHORS COPYING ChangeLog NEWS \
-	README THANKS TODO compile config.guess config.sub install-sh \
-	ltmain.sh missing
+	$(srcdir)/libusb-1.0.pc.in $(top_srcdir)/../../compile \
+	$(top_srcdir)/../../config.guess \
+	$(top_srcdir)/../../config.sub $(top_srcdir)/../../install-sh \
+	$(top_srcdir)/../../ltmain.sh $(top_srcdir)/../../missing \
+	AUTHORS COPYING ChangeLog NEWS README THANKS TODO
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -236,14 +236,14 @@ distuninstallcheck_listfiles = find . -type f -print
 am__distuninstallcheck_listfiles = $(distuninstallcheck_listfiles) \
   | sed 's|^\./|$(prefix)/|' | grep -v '$(infodir)/dir$$'
 distcleancheck_listfiles = find . -type f -print
-ACLOCAL = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing aclocal-1.15
+ACLOCAL = ${SHELL} /home/wareck/cgminer-ants3/missing aclocal-1.15
 AMTAR = $${TAR-tar}
 AM_CFLAGS = -std=gnu99 -Wall -Wundef -Wunused -Wstrict-prototypes -Werror-implicit-function-declaration -Wno-pointer-sign -Wshadow -pthread -fvisibility=hidden
 AM_DEFAULT_VERBOSITY = 0
 AR = ar
-AUTOCONF = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing autoconf
-AUTOHEADER = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing autoheader
-AUTOMAKE = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing automake-1.15
+AUTOCONF = ${SHELL} /home/wareck/cgminer-ants3/missing autoconf
+AUTOHEADER = ${SHELL} /home/wareck/cgminer-ants3/missing autoheader
+AUTOMAKE = ${SHELL} /home/wareck/cgminer-ants3/missing automake-1.15
 AWK = gawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
@@ -279,7 +279,7 @@ LTLDFLAGS = -version-info 2:0:0 -no-undefined
 LTLIBOBJS = 
 LT_SYS_LIBRARY_PATH = 
 MAINT = #
-MAKEINFO = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/missing makeinfo
+MAKEINFO = ${SHELL} /home/wareck/cgminer-ants3/missing makeinfo
 MANIFEST_TOOL = :
 MKDIR_P = /bin/mkdir -p
 NM = /usr/bin/nm -B
@@ -340,7 +340,7 @@ host_vendor = pc
 htmldir = ${docdir}
 includedir = ${prefix}/include
 infodir = ${datarootdir}/info
-install_sh = ${SHELL} /home/wareck/cgminer-ants3/compat/libusb-1.0/install-sh
+install_sh = ${SHELL} /home/wareck/cgminer-ants3/install-sh
 libdir = ${exec_prefix}/lib
 libexecdir = ${exec_prefix}/libexec
 localedir = ${datarootdir}/locale
