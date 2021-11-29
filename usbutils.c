@@ -4100,7 +4100,7 @@ void usb_initialise(void)
 
 #ifndef WIN32
 #include <errno.h>
-//#include <unistd.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <fcntl.h>
